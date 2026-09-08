@@ -1,6 +1,6 @@
 # Smartenance Repair Task Export
 
-A simple local app for exporting Festo AX Smartenance repair tasks to CSV. Connect your API account, select equipment and a date range, then download the results. Each matching repair task is exported as a separate row.
+A simple local app for exporting Festo AX Smartenance repair tasks to CSV. Connect your API account, select equipment and a date range, then download the results. Each matching repair task is exported as a separate row. Use the Language setting in the header to switch the interface and CSV headers between English and Chinese.
 
 ## Install and run
 

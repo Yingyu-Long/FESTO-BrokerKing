@@ -47,9 +47,29 @@ import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/p
 import { chinaDate, formatTime, resultLabels, toCsv, validateFilters } from "@/lib/festo/shared";
 import type { ExportEvent, Filters, Machine, RepairRow } from "@/lib/festo/types";
 
+import { translate, type Language } from "@/lib/festo/i18n";
+
 type Result = { rows: RepairRow[]; scanned: number; filters: Filters };
 const firstPolicy = "b2c_1_apisignin_ropc";
 export default function Home() {
+  const [language, setLanguage] = useState<Language>("en");
+  const t = (text: string) => translate(text, language);
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("festo-language");
+      if (saved === "en" || saved === "zh") setLanguage(saved);
+    } catch {}
+  }, []);
+  useEffect(() => {
+    document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
+    document.title = translate("Repair task export", language) + " · Smartenance";
+  }, [language]);
+  function changeLanguage(value: Language) {
+    setLanguage(value);
+    try {
+      localStorage.setItem("festo-language", value);
+    } catch {}
+  }
   const today = chinaDate();
   const [mode, setMode] = useState("token");
   const [tokenDraft, setTokenDraft] = useState("");
@@ -234,7 +254,7 @@ export default function Home() {
     const current = latest.current;
     if (!current.result?.rows.length || current.busy)
       throw new Error("Complete a query with matching results before exporting.");
-    const csv = toCsv(current.result.rows),
+    const csv = toCsv(current.result.rows, language),
       blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob),
       link = document.createElement("a");
@@ -339,7 +359,7 @@ export default function Home() {
   const pages = result ? Math.max(1, Math.ceil(result.rows.length / 20)) : 1;
   const machineLabel = (id: string) => {
     const m = machines.find((item) => item.id === id);
-    return m ? `${m.name || "Unnamed machine"}${m.number ? ` · ${m.number}` : ""}` : id;
+    return m ? `${m.name || t("Unnamed machine")}${m.number ? ` · ${m.number}` : ""}` : id;
   };
   return (
     <main className="workspace">
@@ -348,73 +368,81 @@ export default function Home() {
           <Image
             unoptimized
             src="/brand-icon.png"
-            alt="Company logo"
+            alt={t("Company logo")}
             width={40}
             height={40}
             className="brand-icon"
           />
           <span>
-            SMARTENANCE<span className="brand-sub">Repair data export</span>
+            SMARTENANCE<span className="brand-sub">{t("Repair data export")}</span>
           </span>
         </div>
-        <Image
-          unoptimized
-          src="/festo-logo.png"
-          alt="FESTO"
-          width={264}
-          height={70}
-          className="festo-logo"
-        />
+        <div className="header-settings">
+          <label className="language-setting">
+            <select
+              aria-label="Language / 语言"
+              value={language}
+              onChange={(event) => changeLanguage(event.target.value as Language)}
+            >
+              <option value="en">English</option>
+              <option value="zh">中文</option>
+            </select>
+          </label>
+          <Image
+            unoptimized
+            src="/festo-logo.png"
+            alt="FESTO"
+            width={264}
+            height={70}
+            className="festo-logo"
+          />
+        </div>
       </header>
       <div className="content">
         <div className="page-heading">
           <div>
-            <p className="eyebrow">REPAIR TASKS / CSV</p>
-            <h1>Repair task export</h1>
+            <p className="eyebrow">{t("REPAIR TASKS / CSV")}</p>
+            <h1>{t("Repair task export")}</h1>
             <p className="muted">
-              Select machines and creation dates to export repair records as CSV.
+              {t("Select machines and creation dates to export repair records as CSV.")}
             </p>
           </div>
           <span className={`connection-status ${token ? "connected" : ""}`}>
-            {token ? "Connected to Smartenance" : "Not connected"}
+            {token ? t("Connected to Smartenance") : t("Not connected")}
           </span>
         </div>
         <section className="connection-panel" aria-labelledby="connection-title">
           <div className="section-label">
             <Cable size={19} />
-            <h2 id="connection-title">Connect to Smartenance</h2>
+            <h2 id="connection-title">{t("Connect to Smartenance")}</h2>
             {token && (
               <Button className="disconnect" variant="ghost" disabled={busy} onClick={disconnect}>
-                Disconnect
+                {t("Disconnect")}
               </Button>
             )}
           </div>
           {!token ? (
             <>
-              <p className="muted">
-                Credentials are used only for this page session. Reconnect after refreshing the
-                page.
-              </p>
               <Tabs value={mode} onValueChange={(v) => setMode(String(v))} className="auth-tabs">
                 <TabsList>
                   <TabsTrigger value="token" disabled={connecting}>
-                    Access token
+                    {t("Access token")}
                   </TabsTrigger>
                   <TabsTrigger value="account" disabled={connecting}>
-                    API account
+                    {t("API account")}
                   </TabsTrigger>
                 </TabsList>
                 <form onSubmit={connect}>
                   <TabsContent value="token">
                     <div className="connection-fields">
                       <label htmlFor="access-token">
-                        Access token
+                        {t("Access token")}
                         <Input
                           id="access-token"
                           type="password"
                           value={tokenDraft}
                           onChange={(e) => setTokenDraft(e.target.value)}
-                          placeholder="Paste your access token (Bearer prefix optional)"
+                          placeholder={t("Paste your access token (Bearer prefix optional)")}
                           required={mode === "token"}
                           autoComplete="off"
                           disabled={connecting}
@@ -422,26 +450,26 @@ export default function Home() {
                       </label>
                       <Button type="submit" disabled={connecting || !tokenDraft.trim()}>
                         {connecting && <LoaderCircle className="spin" />}
-                        Connect & load machines
+                        {t("Connect & load machines")}
                       </Button>
                     </div>
                   </TabsContent>
                   <TabsContent value="account">
                     <div className="connection-fields">
                       <label htmlFor="api-username">
-                        API username
+                        {t("API username")}
                         <Input
                           id="api-username"
                           value={username}
                           onChange={(e) => setUsername(e.target.value)}
-                          placeholder="Smartenance Premium API username"
+                          placeholder={t("Smartenance Premium API username")}
                           required={mode === "account"}
                           autoComplete="username"
                           disabled={connecting}
                         />
                       </label>
                       <label htmlFor="api-password">
-                        Password
+                        {t("Password")}
                         <Input
                           id="api-password"
                           type="password"
@@ -454,22 +482,22 @@ export default function Home() {
                       </label>
                       <Button type="submit" disabled={connecting || !username.trim() || !password}>
                         {connecting && <LoaderCircle className="spin" />}
-                        Sign in & load machines
+                        {t("Sign in & load machines")}
                       </Button>
                     </div>
                     <details className="auth-help">
-                      <summary>Trouble signing in?</summary>
+                      <summary>{t("Trouble signing in?")}</summary>
                       <p>
-                        Use an account with API access. The official guide and example list
-                        different authentication policies. If the default does not work, select the
-                        alternative manually or use an access token.
+                        {t(
+                          "Use an account with API access. The official guide and example list different authentication policies. If the default does not work, select the alternative manually or use an access token.",
+                        )}
                       </p>
                       <Select
                         value={policy}
                         onValueChange={(v) => v && setPolicy(v)}
                         disabled={connecting}
                       >
-                        <SelectTrigger aria-label="Authentication policy">
+                        <SelectTrigger aria-label={t("Authentication policy")}>
                           <SelectValue>{policy}</SelectValue>
                         </SelectTrigger>
                         <SelectContent>
@@ -487,19 +515,19 @@ export default function Home() {
                 target="_blank"
                 rel="noreferrer"
               >
-                Festo authentication guide ↗
+                {t("Festo authentication guide ↗")}
               </a>
             </>
           ) : (
             <p className="muted">
-              Loaded {machines.length} machines. Reconnect when your access token expires.
+              {t(`Loaded ${machines.length} machines. Reconnect when your access token expires.`)}
             </p>
           )}
         </section>
         <section className="filter-panel" aria-labelledby="filters-title">
           <div className="section-label">
             <ListFilter size={19} />
-            <h2 id="filters-title">Filters</h2>
+            <h2 id="filters-title">{t("Filters")}</h2>
           </div>
           <form
             onSubmit={(e) => {
@@ -512,7 +540,7 @@ export default function Home() {
                 <label htmlFor="machines">
                   <span>
                     <Factory size={16} />
-                    Machines · select one or more
+                    {t("Machines · select one or more")}
                   </span>
                 </label>
                 <Combobox
@@ -537,9 +565,11 @@ export default function Home() {
                           ))}
                           <ComboboxChipsInput
                             id="machines"
-                            aria-label="Select machines"
+                            aria-label={t("Select machines")}
                             placeholder={
-                              values.length ? "Add another…" : "Search by machine name or number"
+                              values.length
+                                ? t("Add another…")
+                                : t("Search by machine name or number")
                             }
                           />
                         </>
@@ -547,7 +577,7 @@ export default function Home() {
                     </ComboboxValue>
                   </ComboboxChips>
                   <ComboboxContent anchor={anchor}>
-                    <ComboboxEmpty>No machines found</ComboboxEmpty>
+                    <ComboboxEmpty>{t("No machines found")}</ComboboxEmpty>
                     <ComboboxList>
                       {(id: string) => (
                         <ComboboxItem key={id} value={id}>
@@ -566,7 +596,7 @@ export default function Home() {
                       clearResult();
                     }}
                   >
-                    Select all
+                    {t("Select all")}
                   </button>
                   <button
                     type="button"
@@ -576,15 +606,15 @@ export default function Home() {
                       clearResult();
                     }}
                   >
-                    Clear
+                    {t("Clear")}
                   </button>
-                  <span>{selected.length} selected</span>
+                  <span>{t(`${selected.length} selected`)}</span>
                 </div>
               </div>
               <label htmlFor="date-from">
                 <span>
                   <CalendarDays size={16} />
-                  Created from
+                  {t("Created from")}
                 </span>
                 <Input
                   id="date-from"
@@ -599,7 +629,7 @@ export default function Home() {
                 />
               </label>
               <label htmlFor="date-to">
-                <span>Created through</span>
+                <span>{t("Created through")}</span>
                 <Input
                   id="date-to"
                   type="date"
@@ -615,31 +645,28 @@ export default function Home() {
               </label>
               <Button type="submit" disabled={!token || !selected.length || busy || connecting}>
                 {busy ? <LoaderCircle className="spin" /> : <Search />}
-                {busy ? "Searching…" : "Find repair tasks"}
+                {busy ? t("Searching…") : t("Find repair tasks")}
               </Button>
             </div>
           </form>
-          <p className="filter-note">
-            Filtered by repair task creation time · UTC+8 (Beijing) · Both dates included
-          </p>
           {busy && (
             <output className="query-progress">
               <LoaderCircle size={17} className="spin" />
-              <span>{progress}</span>
+              <span>{t(progress)}</span>
               <Button variant="ghost" onClick={() => abortRef.current?.abort()}>
                 <X />
-                Cancel
+                {t("Cancel")}
               </Button>
             </output>
           )}
           {error && (
             <div role="alert" className="notice error">
-              {error}
+              {t(error)}
             </div>
           )}
           {notice && (
             <output className="notice info" style={{ display: "block" }}>
-              {notice}
+              {t(notice)}
             </output>
           )}
         </section>
@@ -647,13 +674,16 @@ export default function Home() {
           <div className="result-header">
             <div>
               <h2 id="results-title">
-                Results {result && <span className="count">{result.rows.length}</span>}
+                {t("Results")}
+                {result && <span className="count">{result.rows.length}</span>}
               </h2>
-              <p className="muted">
-                {result
-                  ? `${result.filters.from} — ${result.filters.to} · ${result.scanned} incidents checked`
-                  : "Each row is a repair task linked to an incident."}
-              </p>
+              {result && (
+                <p className="muted">
+                  {t(
+                    `${result.filters.from} — ${result.filters.to} · ${result.scanned} incidents checked`,
+                  )}
+                </p>
+              )}
             </div>
             <Button
               disabled={!result?.rows.length || busy}
@@ -667,7 +697,7 @@ export default function Home() {
               }}
             >
               <ArrowDownToLine />
-              Export all to CSV
+              {t("Export all to CSV")}
               {result?.rows.length ? ` (${result.rows.length})` : ""}
             </Button>
           </div>
@@ -676,32 +706,33 @@ export default function Home() {
               <Table className="repair-table">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Machine / incident</TableHead>
-                    <TableHead>Repair task</TableHead>
-                    <TableHead>Result</TableHead>
-                    <TableHead>Created at (UTC+8)</TableHead>
-                    <TableHead>Created by</TableHead>
+                    <TableHead>{t("Machine / incident")}</TableHead>
+                    <TableHead>{t("Repair task")}</TableHead>
+                    <TableHead>{t("Result")}</TableHead>
+                    <TableHead>{t("Created at (UTC+8)")}</TableHead>
+                    <TableHead>{t("Created by")}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {result.rows.slice((page - 1) * 20, page * 20).map((row) => (
                     <TableRow key={row.taskId}>
                       <TableCell>
-                        <strong>{row.machineName || "Unnamed machine"}</strong>
+                        <strong>{row.machineName || t("Unnamed machine")}</strong>
                         <small>
-                          {row.machineNumber || "No machine number"} · Incident #
+                          {row.machineNumber || t("No machine number")} ·{" "}
+                          {language === "zh" ? "故障 #" : "Incident #"}
                           {row.incidentNumber}
                         </small>
                       </TableCell>
                       <TableCell className="task-description">
-                        <strong>{row.description || "No task description"}</strong>
-                        <small>{row.incidentSummary || "No incident summary"}</small>
+                        <strong>{row.description || t("No task description")}</strong>
+                        <small>{row.incidentSummary || t("No incident summary")}</small>
                       </TableCell>
                       <TableCell>
                         <span
                           className={`result-tag ${row.result === "Success" ? "success" : row.result === "Failure" ? "failure" : "unknown"}`}
                         >
-                          {resultLabels[row.result] ?? row.result}
+                          {t(resultLabels[row.result] ?? row.result)}
                         </span>
                       </TableCell>
                       <TableCell className="time-cell">{formatTime(row.createdAt)}</TableCell>
@@ -711,8 +742,8 @@ export default function Home() {
                 </TableBody>
               </Table>
               <div className="table-bottom">
-                <span>20 rows per page · CSV includes all {result.rows.length} rows</span>
-                <Pagination aria-label="Result pages">
+                <span>{t(`20 rows per page · CSV includes all ${result.rows.length} rows`)}</span>
+                <Pagination aria-label={t("Result pages")}>
                   <PaginationContent>
                     <PaginationItem>
                       <Button
@@ -720,7 +751,7 @@ export default function Home() {
                         disabled={page === 1}
                         onClick={() => setPage((p) => p - 1)}
                       >
-                        Previous
+                        {t("Previous")}
                       </Button>
                     </PaginationItem>
                     <PaginationItem>
@@ -734,7 +765,7 @@ export default function Home() {
                         disabled={page === pages}
                         onClick={() => setPage((p) => p + 1)}
                       >
-                        Next
+                        {t("Next")}
                       </Button>
                     </PaginationItem>
                   </PaginationContent>
@@ -749,30 +780,30 @@ export default function Home() {
                 </div>
                 <EmptyTitle>
                   {busy
-                    ? "Collecting repair records"
+                    ? t("Collecting repair records")
                     : result
-                      ? "No repair tasks match these filters"
-                      : "Your repair records, ready to export"}
+                      ? t("No repair tasks match these filters")
+                      : t("Your repair records, ready to export")}
                 </EmptyTitle>
-                <EmptyDescription>
-                  {busy
-                    ? "Export becomes available once all records have been read."
-                    : result
-                      ? "Try other machines or a wider creation date range."
-                      : "Connect your account, then select machines and a date range to begin."}
-                </EmptyDescription>
+                {(busy || result) && (
+                  <EmptyDescription>
+                    {busy
+                      ? t("Export becomes available once all records have been read.")
+                      : t("Try other machines or a wider creation date range.")}
+                  </EmptyDescription>
+                )}
               </EmptyHeader>
             </Empty>
           )}
         </section>
         <footer>
-          <span>Festo AX Smartenance · Read and export repair records</span>
+          <span>{t("Festo AX Smartenance · Read and export repair records")}</span>
           <a
             href="https://developers.festo.com/docs/digismartenance-premiumpublicprod/1/overview"
             target="_blank"
             rel="noreferrer"
           >
-            API documentation ↗
+            {t("API documentation ↗")}
           </a>
         </footer>
       </div>

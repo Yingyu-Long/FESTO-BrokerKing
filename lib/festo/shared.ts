@@ -1,3 +1,4 @@
+import { translate, type Language } from "./i18n.ts";
 import type { Filters, RepairRow } from "./types.ts";
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DAY = 86400000;
@@ -85,18 +86,18 @@ export function csvCell(value: string) {
     /^[\s\p{Cc}]*[=+\-@＝＋－＠]/u.test(value) || /^[\t\r\n]/.test(value) ? `'${value}` : value;
   return `"${safe.replaceAll('"', '""')}"`;
 }
-export function toCsv(rows: RepairRow[]) {
+export function toCsv(rows: RepairRow[], language: Language = "en") {
   return (
     "\uFEFF" +
     [
-      CSV_COLUMNS.map((c) => csvCell(c.label)).join(","),
+      CSV_COLUMNS.map((c) => csvCell(translate(c.label, language))).join(","),
       ...rows.map((row) =>
         CSV_COLUMNS.map((c) =>
           csvCell(
             c.time
               ? formatTime(row[c.key])
               : c.key === "result"
-                ? (resultLabels[row.result] ?? row.result)
+                ? translate(resultLabels[row.result] ?? row.result, language)
                 : row[c.key],
           ),
         ).join(","),
