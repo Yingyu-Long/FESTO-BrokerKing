@@ -1,0 +1,774 @@
+"use client";
+import Image from "next/image";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  ArrowDownToLine,
+  Cable,
+  CalendarDays,
+  Factory,
+  ListFilter,
+  LoaderCircle,
+  Search,
+  Wrench,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
+import {
+  Combobox,
+  ComboboxChips,
+  ComboboxChip,
+  ComboboxChipsInput,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxValue,
+  useComboboxAnchor,
+} from "@/components/ui/combobox";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableHeader,
+  TableHead,
+  TableBody,
+  TableRow,
+  TableCell,
+} from "@/components/ui/table";
+import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
+import { chinaDate, formatTime, resultLabels, toCsv, validateFilters } from "@/lib/festo/shared";
+import type { ExportEvent, Filters, Machine, RepairRow } from "@/lib/festo/types";
+
+type Result = { rows: RepairRow[]; scanned: number; filters: Filters };
+const firstPolicy = "b2c_1_apisignin_ropc";
+export default function Home() {
+  const today = chinaDate();
+  const [mode, setMode] = useState("token");
+  const [tokenDraft, setTokenDraft] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [policy, setPolicy] = useState(firstPolicy);
+  const [token, setToken] = useState("");
+  const [machines, setMachines] = useState<Machine[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [from, setFrom] = useState(today.slice(0, 8) + "01");
+  const [to, setTo] = useState(today);
+  const [connecting, setConnecting] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState("");
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [result, setResult] = useState<Result | null>(null);
+  const [page, setPage] = useState(1);
+  const abortRef = useRef<AbortController | null>(null);
+  const lock = useRef(false);
+  const anchor = useComboboxAnchor();
+  const latest = useRef({ machines, selected, from, to, result, busy, token });
+  useLayoutEffect(() => {
+    latest.current = { machines, selected, from, to, result, busy, token };
+  }, [machines, selected, from, to, result, busy, token]);
+  useEffect(() => () => abortRef.current?.abort(), []);
+  function clearResult() {
+    setResult(null);
+    setPage(1);
+    setNotice("");
+    setError("");
+  }
+  async function connect(event: React.SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (lock.current) return;
+    lock.current = true;
+    setConnecting(true);
+    clearResult();
+    setToken("");
+    setMachines([]);
+    setSelected([]);
+    try {
+      const response = await fetch("/api/connect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          mode === "token" ? { mode, token: tokenDraft } : { mode, username, password, policy },
+        ),
+        cache: "no-store",
+      });
+      const data = (await response.json()) as {
+        error?: string;
+        token: string;
+        machines: Machine[];
+      };
+      if (!response.ok) throw new Error(data.error || "Connection failed. Please try again.");
+      setToken(data.token);
+      setMachines(data.machines);
+      setTokenDraft("");
+      if (data.machines.length === 1) setSelected([data.machines[0].id]);
+      setNotice(
+        data.machines.length
+          ? `Connected. Loaded ${data.machines.length} machines.`
+          : "Connected, but this account has no accessible machines.",
+      );
+    } catch (e) {
+      setError(
+        e instanceof Error
+          ? e.message
+          : "Unable to connect. Check that the local application is running and the network is available.",
+      );
+    } finally {
+      setPassword("");
+      setConnecting(false);
+      lock.current = false;
+    }
+  }
+  function disconnect() {
+    abortRef.current?.abort();
+    setToken("");
+    setTokenDraft("");
+    setPassword("");
+    setMachines([]);
+    setSelected([]);
+    clearResult();
+  }
+  async function query(input?: Filters) {
+    if (lock.current) throw new Error("Another operation is in progress. Please wait.");
+    const current = latest.current;
+    if (!current.token) throw new Error("Connect to Smartenance first.");
+    const filters = validateFilters(
+      input ?? {
+        machineIds: current.selected,
+        from: current.from,
+        to: current.to,
+      },
+    );
+    if (filters.machineIds.some((id) => !current.machines.some((m) => m.id === id)))
+      throw new Error("A selected machine is unavailable.");
+    setSelected(filters.machineIds);
+    setFrom(filters.from);
+    setTo(filters.to);
+    clearResult();
+    setBusy(true);
+    lock.current = true;
+    setProgress("Reading incidents for the selected machines…");
+    const abort = new AbortController();
+    abortRef.current = abort;
+    try {
+      const response = await fetch("/api/repairs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${current.token}`,
+        },
+        body: JSON.stringify(filters),
+        signal: abort.signal,
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        const data = (await response.json()) as { error?: string };
+        if (response.status === 401) setToken("");
+        throw new Error(data.error || "Query failed.");
+      }
+      if (!response.body) throw new Error("The server did not return any query results.");
+      const reader = response.body.getReader(),
+        decoder = new TextDecoder();
+      let buffer = "";
+      let complete: Extract<ExportEvent, { type: "complete" }> | null = null;
+      const consume = (line: string) => {
+        if (!line.trim()) return;
+        const event = JSON.parse(line) as ExportEvent;
+        if (event.type === "error") {
+          if (event.status === 401) setToken("");
+          throw new Error(event.message);
+        }
+        if (event.type === "progress") setProgress(event.message);
+        if (event.type === "complete") complete = event;
+      };
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let nl: number;
+          while ((nl = buffer.indexOf("\n")) >= 0) {
+            consume(buffer.slice(0, nl));
+            buffer = buffer.slice(nl + 1);
+          }
+        }
+        buffer += decoder.decode();
+        if (buffer.trim()) consume(buffer);
+      } finally {
+        await reader.cancel().catch(() => {});
+        reader.releaseLock();
+      }
+      abort.signal.throwIfAborted();
+      const finalResult = complete as Extract<ExportEvent, { type: "complete" }> | null;
+      if (!finalResult)
+        throw new Error(
+          "The query did not finish. Please try again. Partial results cannot be exported.",
+        );
+      setResult({ ...finalResult, filters });
+      setPage(1);
+      return { count: finalResult.rows.length, scanned: finalResult.scanned };
+    } catch (e) {
+      const message = abort.signal.aborted
+        ? "Query cancelled. Partial results were discarded."
+        : e instanceof Error
+          ? e.message
+          : "The query was interrupted. Please try again.";
+      setError(message);
+      throw new Error(message);
+    } finally {
+      setBusy(false);
+      lock.current = false;
+      abortRef.current = null;
+      setProgress("");
+    }
+  }
+  function download() {
+    const current = latest.current;
+    if (!current.result?.rows.length || current.busy)
+      throw new Error("Complete a query with matching results before exporting.");
+    const csv = toCsv(current.result.rows),
+      blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob),
+      link = document.createElement("a");
+    const filename = `repair_tasks_${current.result.filters.from}_${current.result.filters.to}.csv`;
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    setNotice(
+      `Created a CSV with ${current.result.rows.length} repair tasks. Check your browser downloads.`,
+    );
+    return { filename, count: current.result.rows.length };
+  }
+  const actions = useRef({ query, download });
+  useLayoutEffect(() => {
+    actions.current = { query, download };
+  });
+  useEffect(() => {
+    type Tool = {
+      name: string;
+      description: string;
+      inputSchema: object;
+      annotations: object;
+      execute: (value: unknown) => unknown;
+    };
+    const context = (
+      document as Document & {
+        modelContext?: {
+          registerTool: (tool: Tool, options: { signal: AbortSignal }) => unknown;
+        };
+      }
+    ).modelContext;
+    if (!context?.registerTool) return;
+    const lifecycle = new AbortController();
+    const tools: Tool[] = [
+      {
+        name: "query_repair_tasks",
+        description:
+          "Query repair tasks by machine and creation date in UTC+8 using the connected Smartenance account, and update the page results. The user must connect an account first.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            machineIds: {
+              type: "array",
+              items: { type: "string" },
+              minItems: 1,
+            },
+            from: { type: "string", format: "date" },
+            to: { type: "string", format: "date" },
+          },
+          required: ["machineIds", "from", "to"],
+          additionalProperties: false,
+        },
+        annotations: { readOnlyHint: false, untrustedContentHint: true },
+        execute: (input) => actions.current.query(validateFilters(input)),
+      },
+      {
+        name: "get_repair_export_state",
+        description:
+          "Read available machines, current filters and result count. Credentials are never returned.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        annotations: { readOnlyHint: true, untrustedContentHint: true },
+        execute: () => {
+          const s = latest.current;
+          return {
+            connected: !!s.token,
+            machines: s.machines,
+            filters: { machineIds: s.selected, from: s.from, to: s.to },
+            busy: s.busy,
+            count: s.result?.rows.length ?? null,
+          };
+        },
+      },
+      {
+        name: "download_repair_csv",
+        description:
+          "Download the complete repair task query results shown on this page as a CSV file.",
+        inputSchema: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        annotations: { readOnlyHint: false, untrustedContentHint: true },
+        execute: () => actions.current.download(),
+      },
+    ];
+    for (const tool of tools) {
+      try {
+        void Promise.resolve(context.registerTool(tool, { signal: lifecycle.signal })).catch(
+          () => {},
+        );
+      } catch {}
+    }
+    return () => lifecycle.abort();
+  }, []);
+  const pages = result ? Math.max(1, Math.ceil(result.rows.length / 20)) : 1;
+  const machineLabel = (id: string) => {
+    const m = machines.find((item) => item.id === id);
+    return m ? `${m.name || "Unnamed machine"}${m.number ? ` · ${m.number}` : ""}` : id;
+  };
+  return (
+    <main className="workspace">
+      <header className="topbar">
+        <div className="brand">
+          <Image
+            unoptimized
+            src="/brand-icon.png"
+            alt="Company logo"
+            width={40}
+            height={40}
+            className="brand-icon"
+          />
+          <span>
+            SMARTENANCE<span className="brand-sub">Repair data export</span>
+          </span>
+        </div>
+        <span className="local-badge">Local workspace</span>
+      </header>
+      <div className="content">
+        <div className="page-heading">
+          <div>
+            <p className="eyebrow">REPAIR TASKS / CSV</p>
+            <h1>Repair task export</h1>
+            <p className="muted">
+              Select machines and creation dates to export repair records as CSV.
+            </p>
+          </div>
+          <span className={`connection-status ${token ? "connected" : ""}`}>
+            {token ? "Connected to Smartenance" : "Not connected"}
+          </span>
+        </div>
+        <section className="connection-panel" aria-labelledby="connection-title">
+          <div className="section-label">
+            <Cable size={19} />
+            <h2 id="connection-title">Connect to Smartenance</h2>
+            {token && (
+              <Button className="disconnect" variant="ghost" disabled={busy} onClick={disconnect}>
+                Disconnect
+              </Button>
+            )}
+          </div>
+          {!token ? (
+            <>
+              <p className="muted">
+                Credentials are used only for this page session. Reconnect after refreshing the
+                page.
+              </p>
+              <Tabs value={mode} onValueChange={(v) => setMode(String(v))} className="auth-tabs">
+                <TabsList>
+                  <TabsTrigger value="token" disabled={connecting}>
+                    Access token
+                  </TabsTrigger>
+                  <TabsTrigger value="account" disabled={connecting}>
+                    API account
+                  </TabsTrigger>
+                </TabsList>
+                <form onSubmit={connect}>
+                  <TabsContent value="token">
+                    <div className="connection-fields">
+                      <label htmlFor="access-token">
+                        Access token
+                        <Input
+                          id="access-token"
+                          type="password"
+                          value={tokenDraft}
+                          onChange={(e) => setTokenDraft(e.target.value)}
+                          placeholder="Paste your access token (Bearer prefix optional)"
+                          required={mode === "token"}
+                          autoComplete="off"
+                          disabled={connecting}
+                        />
+                      </label>
+                      <Button type="submit" disabled={connecting || !tokenDraft.trim()}>
+                        {connecting && <LoaderCircle className="spin" />}
+                        Connect & load machines
+                      </Button>
+                    </div>
+                  </TabsContent>
+                  <TabsContent value="account">
+                    <div className="connection-fields">
+                      <label htmlFor="api-username">
+                        API username
+                        <Input
+                          id="api-username"
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                          placeholder="Smartenance Premium API username"
+                          required={mode === "account"}
+                          autoComplete="username"
+                          disabled={connecting}
+                        />
+                      </label>
+                      <label htmlFor="api-password">
+                        Password
+                        <Input
+                          id="api-password"
+                          type="password"
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          required={mode === "account"}
+                          autoComplete="off"
+                          disabled={connecting}
+                        />
+                      </label>
+                      <Button type="submit" disabled={connecting || !username.trim() || !password}>
+                        {connecting && <LoaderCircle className="spin" />}
+                        Sign in & load machines
+                      </Button>
+                    </div>
+                    <details className="auth-help">
+                      <summary>Trouble signing in?</summary>
+                      <p>
+                        Use an account with API access. The official guide and example list
+                        different authentication policies. If the default does not work, select the
+                        alternative manually or use an access token.
+                      </p>
+                      <Select
+                        value={policy}
+                        onValueChange={(v) => v && setPolicy(v)}
+                        disabled={connecting}
+                      >
+                        <SelectTrigger aria-label="Authentication policy">
+                          <SelectValue>{policy}</SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={firstPolicy}>b2c_1_apisignin_ropc</SelectItem>
+                          <SelectItem value="b2c_1_ropc_apisignin">b2c_1_ropc_apisignin</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </details>
+                  </TabsContent>
+                </form>
+              </Tabs>
+              <a
+                className="doc-link"
+                href="https://developers.festo.com/smartenance-authentication"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Festo authentication guide ↗
+              </a>
+            </>
+          ) : (
+            <p className="muted">
+              Loaded {machines.length} machines. Reconnect when your access token expires.
+            </p>
+          )}
+        </section>
+        <section className="filter-panel" aria-labelledby="filters-title">
+          <div className="section-label">
+            <ListFilter size={19} />
+            <h2 id="filters-title">Filters</h2>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void query().catch((e) => setError(e.message));
+            }}
+          >
+            <div className="filter-grid">
+              <div className="machine-field">
+                <label htmlFor="machines">
+                  <span>
+                    <Factory size={16} />
+                    Machines · select one or more
+                  </span>
+                </label>
+                <Combobox
+                  multiple
+                  items={machines.map((m) => m.id)}
+                  value={selected}
+                  onValueChange={(v) => {
+                    setSelected(v);
+                    clearResult();
+                  }}
+                  itemToStringLabel={machineLabel}
+                  disabled={!token || busy}
+                >
+                  <ComboboxChips ref={anchor} className="machine-chips">
+                    <ComboboxValue>
+                      {(values: string[]) => (
+                        <>
+                          {values.map((id) => (
+                            <ComboboxChip key={id} aria-label={machineLabel(id)}>
+                              {machineLabel(id)}
+                            </ComboboxChip>
+                          ))}
+                          <ComboboxChipsInput
+                            id="machines"
+                            aria-label="Select machines"
+                            placeholder={
+                              values.length ? "Add another…" : "Search by machine name or number"
+                            }
+                          />
+                        </>
+                      )}
+                    </ComboboxValue>
+                  </ComboboxChips>
+                  <ComboboxContent anchor={anchor}>
+                    <ComboboxEmpty>No machines found</ComboboxEmpty>
+                    <ComboboxList>
+                      {(id: string) => (
+                        <ComboboxItem key={id} value={id}>
+                          {machineLabel(id)}
+                        </ComboboxItem>
+                      )}
+                    </ComboboxList>
+                  </ComboboxContent>
+                </Combobox>
+                <div className="machine-actions">
+                  <button
+                    type="button"
+                    disabled={!token || busy}
+                    onClick={() => {
+                      setSelected(machines.map((m) => m.id));
+                      clearResult();
+                    }}
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!selected.length || busy}
+                    onClick={() => {
+                      setSelected([]);
+                      clearResult();
+                    }}
+                  >
+                    Clear
+                  </button>
+                  <span>{selected.length} selected</span>
+                </div>
+              </div>
+              <label htmlFor="date-from">
+                <span>
+                  <CalendarDays size={16} />
+                  Created from
+                </span>
+                <Input
+                  id="date-from"
+                  type="date"
+                  value={from}
+                  onChange={(e) => {
+                    setFrom(e.target.value);
+                    clearResult();
+                  }}
+                  required
+                  disabled={busy}
+                />
+              </label>
+              <label htmlFor="date-to">
+                <span>Created through</span>
+                <Input
+                  id="date-to"
+                  type="date"
+                  value={to}
+                  min={from}
+                  onChange={(e) => {
+                    setTo(e.target.value);
+                    clearResult();
+                  }}
+                  required
+                  disabled={busy}
+                />
+              </label>
+              <Button type="submit" disabled={!token || !selected.length || busy || connecting}>
+                {busy ? <LoaderCircle className="spin" /> : <Search />}
+                {busy ? "Searching…" : "Find repair tasks"}
+              </Button>
+            </div>
+          </form>
+          <p className="filter-note">
+            Filtered by repair task creation time · UTC+8 (Beijing) · Both dates included
+          </p>
+          {busy && (
+            <output className="query-progress">
+              <LoaderCircle size={17} className="spin" />
+              <span>{progress}</span>
+              <Button variant="ghost" onClick={() => abortRef.current?.abort()}>
+                <X />
+                Cancel
+              </Button>
+            </output>
+          )}
+          {error && (
+            <div role="alert" className="notice error">
+              {error}
+            </div>
+          )}
+          {notice && (
+            <output className="notice info" style={{ display: "block" }}>
+              {notice}
+            </output>
+          )}
+        </section>
+        <section className="result-panel" aria-labelledby="results-title" aria-busy={busy}>
+          <div className="result-header">
+            <div>
+              <h2 id="results-title">
+                Results {result && <span className="count">{result.rows.length}</span>}
+              </h2>
+              <p className="muted">
+                {result
+                  ? `${result.filters.from} — ${result.filters.to} · ${result.scanned} incidents checked`
+                  : "Each row is a repair task linked to an incident."}
+              </p>
+            </div>
+            <Button
+              disabled={!result?.rows.length || busy}
+              variant={result?.rows.length ? "default" : "outline"}
+              onClick={() => {
+                try {
+                  download();
+                } catch (e) {
+                  setError((e as Error).message);
+                }
+              }}
+            >
+              <ArrowDownToLine />
+              Export all to CSV
+              {result?.rows.length ? ` (${result.rows.length})` : ""}
+            </Button>
+          </div>
+          {result?.rows.length ? (
+            <>
+              <Table className="repair-table">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Machine / incident</TableHead>
+                    <TableHead>Repair task</TableHead>
+                    <TableHead>Result</TableHead>
+                    <TableHead>Created at (UTC+8)</TableHead>
+                    <TableHead>Created by</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {result.rows.slice((page - 1) * 20, page * 20).map((row) => (
+                    <TableRow key={row.taskId}>
+                      <TableCell>
+                        <strong>{row.machineName || "Unnamed machine"}</strong>
+                        <small>
+                          {row.machineNumber || "No machine number"} · Incident #
+                          {row.incidentNumber}
+                        </small>
+                      </TableCell>
+                      <TableCell className="task-description">
+                        <strong>{row.description || "No task description"}</strong>
+                        <small>{row.incidentSummary || "No incident summary"}</small>
+                      </TableCell>
+                      <TableCell>
+                        <span
+                          className={`result-tag ${row.result === "Success" ? "success" : row.result === "Failure" ? "failure" : "unknown"}`}
+                        >
+                          {resultLabels[row.result] ?? row.result}
+                        </span>
+                      </TableCell>
+                      <TableCell className="time-cell">{formatTime(row.createdAt)}</TableCell>
+                      <TableCell>{row.createdBy || "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+              <div className="table-bottom">
+                <span>20 rows per page · CSV includes all {result.rows.length} rows</span>
+                <Pagination aria-label="Result pages">
+                  <PaginationContent>
+                    <PaginationItem>
+                      <Button
+                        variant="ghost"
+                        disabled={page === 1}
+                        onClick={() => setPage((p) => p - 1)}
+                      >
+                        Previous
+                      </Button>
+                    </PaginationItem>
+                    <PaginationItem>
+                      <span aria-live="polite">
+                        {page} / {pages}
+                      </span>
+                    </PaginationItem>
+                    <PaginationItem>
+                      <Button
+                        variant="ghost"
+                        disabled={page === pages}
+                        onClick={() => setPage((p) => p + 1)}
+                      >
+                        Next
+                      </Button>
+                    </PaginationItem>
+                  </PaginationContent>
+                </Pagination>
+              </div>
+            </>
+          ) : (
+            <Empty className="result-empty">
+              <EmptyHeader>
+                <div className="empty-icon">
+                  {busy ? <LoaderCircle size={26} className="spin" /> : <Wrench size={26} />}
+                </div>
+                <EmptyTitle>
+                  {busy
+                    ? "Collecting repair records"
+                    : result
+                      ? "No repair tasks match these filters"
+                      : "Your repair records, ready to export"}
+                </EmptyTitle>
+                <EmptyDescription>
+                  {busy
+                    ? "Export becomes available once all records have been read."
+                    : result
+                      ? "Try other machines or a wider creation date range."
+                      : "Connect your account, then select machines and a date range to begin."}
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
+          )}
+        </section>
+        <footer>
+          <span>Festo AX Smartenance · Read and export repair records</span>
+          <a
+            href="https://developers.festo.com/docs/digismartenance-premiumpublicprod/1/overview"
+            target="_blank"
+            rel="noreferrer"
+          >
+            API documentation ↗
+          </a>
+        </footer>
+      </div>
+    </main>
+  );
+}
