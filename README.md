@@ -33,7 +33,7 @@ Both development and production servers bind to the local loopback address.
 
 Credentials are not saved automatically. The browser keeps authentication information in memory; refreshing the page or disconnecting requires signing in again. Requests pass through the local Node.js server to fixed official Festo endpoints. No cloud service or database is configured.
 
-The interface, error messages, CSV headers, and export filenames are in English. Equipment names and repair content retain their original source language.
+The interface, error messages, CSV headers, and export filenames are in English. Equipment names and repair content retain their original source language. HTML formatting in repair descriptions and incident text is converted to plain text for both the preview and CSV, preserving paragraph and list-item line breaks. Empty editor markup is omitted.
 
 ## Date filtering and CSV output
 

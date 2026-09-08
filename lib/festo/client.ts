@@ -1,5 +1,6 @@
 import type { Machine, Incident, RepairRow, Filters, Progress } from "./types.ts";
 import { dateBounds, UUID } from "./shared.ts";
+import { plainText } from "./plain-text.ts";
 export const API_BASE = "https://api.festo.com/apps/smartenance/v1";
 export const AUTH_POLICIES = ["b2c_1_apisignin_ropc", "b2c_1_ropc_apisignin"] as const;
 export class FestoError extends Error {
@@ -314,14 +315,14 @@ export async function collectRepairs(
             machineNumber: machine.number ?? "",
             incidentId: log.id,
             incidentNumber: String(incident.logNumber ?? log.number ?? ""),
-            incidentSummary: incident.summary ?? "",
+            incidentSummary: plainText(incident.summary),
             incidentState: incident.state ?? "",
             incidentOccurredAt: incident.occurredAt ?? "",
             incidentFixedAt: incident.fixedDateTime ?? "",
-            incidentDescription: incident.description ?? "",
-            incidentCause: incident.cause ?? "",
+            incidentDescription: plainText(incident.description),
+            incidentCause: plainText(incident.cause),
             taskId: task.id,
-            description: task.description ?? "",
+            description: plainText(task.description),
             result: task.result ?? "Unknown",
             createdAt: task.createdAt,
             createdBy: task.createdBy ?? "",
