@@ -9,6 +9,7 @@ A simple local app for exporting Festo AX Smartenance repair tasks to CSV. Conne
 3. Open a terminal in that folder and install the dependencies:
 
    ```sh
+   npm install
    npm ci
    ```
 
