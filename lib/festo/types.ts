@@ -50,7 +50,13 @@ export interface RepairRow {
   modifiedAt: string;
   modifiedBy: string;
   comments: string;
-  customFields: string;
+  repairContent: string;
+  repairTime: string;
+  repairLaborHours: string;
+  downtime: string;
+  repairRemarks: string;
+  repairOwner: string;
+  repairCollaborators: string;
 }
 export interface Filters {
   machineIds: string[];

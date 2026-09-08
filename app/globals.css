@@ -133,12 +133,12 @@ body {
   font-weight: 400;
   letter-spacing: 0;
 }
-.local-badge {
-  color: #587086;
-  background: #f1f5f8;
-  padding: 6px 12px;
-  font-size: 13px;
-  border-radius: 5px;
+.festo-logo {
+  display: block;
+  width: 158px;
+  height: auto;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 .content {
   max-width: 1200px;
@@ -342,8 +342,8 @@ footer a {
   .brand {
     font-size: 15px;
   }
-  .local-badge {
-    font-size: 12px;
+  .festo-logo {
+    width: 100px;
   }
   .content {
     padding: 25px 16px;

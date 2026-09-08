@@ -47,7 +47,7 @@ The interface, error messages, CSV headers, and export filenames are in English.
 
 The CSV uses English headers, a UTF-8 BOM, comma separators, and CRLF line endings. Commas, quotes, and line breaks are escaped. Text that could be interpreted as a spreadsheet formula receives a leading apostrophe.
 
-Exported fields include equipment name, number, and ID; incident number, ID, summary, status, occurrence time, fix time, description, and cause; and repair task ID, description, outcome, creation time, creator, modification time, modifier, comments JSON, and custom fields JSON. All timestamp columns use UTC+8. Images and attachment contents are not downloaded.
+Exported fields include equipment name, number, and ID; incident number, ID, summary, status, occurrence time, fix time, description, and cause; and repair task ID, description, outcome, creation time, creator, modification time, modifier, comments JSON, and separate columns for Repair content, Repair time, Repair labor hours, Downtime, Remarks, Repair owner, and Collaborators. Custom field labels are matched against their original and translated names; missing values remain blank. Time and labor custom field values keep their source units without conversion. Each matching repair task produces its own row, including multiple tasks belonging to the same incident. All timestamp columns use UTC+8. Images and attachment contents are not downloaded.
 
 ## API authentication and data access
 
@@ -59,7 +59,7 @@ References: [Festo API documentation](https://developers.festo.com/docs/digismar
 - Equipment is loaded using the official `limit=-1` parameter and checked against the returned total. There is no 200-device loading limit or 500-device selection limit.
 - Incident lists use the documented `items/count/offset/total` pagination fields, reading every page in batches of 200.
 - The API account must have permission to read both incident lists and incident details. A regular website login may not have Premium API access.
-- A 401 response stops the request without retrying the invalid token. Responses with status 403 or 429 show the relevant access or waiting information without automatic retries.
+- A 401 response stops the request without retrying the invalid token. A 403 response stops without automatic retries. API reads are paced to at most one request per second across this local server. A 429 response pauses all API reads, respects Retry-After (seconds or HTTP date) and X-Retry-After, and retries the same read up to three times with increasing waits of at least 60, 120, and 240 seconds. Waits longer than five minutes stop with a message instead. Query progress shows the pause and supports cancellation.
 
 The authentication documentation lists `b2c_1_apisignin_ropc` in its main URL and `b2c_1_ropc_apisignin` in its example. API account login defaults to the first policy; the second can be selected under **Trouble signing in?**. The application does not automatically try multiple password requests. An existing access token can be used directly.
 

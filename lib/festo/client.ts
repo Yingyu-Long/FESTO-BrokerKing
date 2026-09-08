@@ -1,9 +1,38 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { Machine, Incident, RepairRow, Filters, Progress } from "./types.ts";
 import { dateBounds, UUID } from "./shared.ts";
 import { plainText } from "./plain-text.ts";
+import { repairCustomFields } from "./custom-fields.ts";
 export const API_BASE = "https://api.festo.com/apps/smartenance/v1";
 export const AUTH_POLICIES = ["b2c_1_apisignin_ropc", "b2c_1_ropc_apisignin"] as const;
+// Shared by all clients in this local server, including concurrent browser tabs.
+let nextRequestAt = 0;
+let cooldownUntil = 0;
+
+export function retryAfterMs(headers: Headers, now = Date.now()) {
+  const waits = [headers.get("Retry-After"), headers.get("X-Retry-After")]
+    .filter((value): value is string => value !== null)
+    .map((value) => /^\d+(?:\.\d+)?$/.test(value.trim())
+      ? Number(value) * 1000
+      : Date.parse(value) - now)
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  return waits.length ? Math.max(...waits) : 60000;
+}
+
+async function waitForRequest(signal?: AbortSignal) {
+  while (true) {
+    signal?.throwIfAborted();
+    const wait = Math.max(nextRequestAt, cooldownUntil) - Date.now();
+    if (wait <= 0) {
+      nextRequestAt = Date.now() + 1000;
+      return;
+    }
+    await delay(Math.min(wait, 60000), undefined, { signal });
+  }
+}
+
 export class FestoError extends Error {
+  retryMs?: number;
   status: number;
   constructor(message: string, status = 502) {
     super(message);
@@ -29,12 +58,34 @@ export class FestoClient {
   private token: string;
   private fetcher: typeof fetch;
   private signal?: AbortSignal;
+  onRateLimit?: (seconds: number) => void;
   constructor(token: string, options: { fetcher?: typeof fetch; signal?: AbortSignal } = {}) {
     this.token = validateToken(token);
     this.fetcher = options.fetcher ?? fetch;
     this.signal = options.signal;
   }
   async get(path: string, params: Record<string, string | number> = {}): Promise<unknown> {
+    for (let attempt = 0; ; attempt++) {
+      this.signal?.throwIfAborted();
+      if (cooldownUntil > Date.now()) {
+        const remaining = cooldownUntil - Date.now();
+        if (remaining > 300000)
+          throw new FestoError(`Festo is rate limited. Please wait at least ${Math.ceil(remaining / 1000)} seconds before trying again.`, 429);
+        this.onRateLimit?.(Math.ceil(remaining / 1000));
+      }
+      await waitForRequest(this.signal);
+      try {
+        return await this.request(path, params);
+      } catch (error) {
+        if (!(error instanceof FestoError) || error.status !== 429) throw error;
+        const wait = Math.max(error.retryMs ?? 60000, 60000 * 2 ** attempt);
+        cooldownUntil = Math.max(cooldownUntil, Date.now() + wait);
+        if (attempt >= 3 || wait > 300000)
+          throw new FestoError(`Festo is still rate limited. Please wait at least ${Math.ceil(wait / 1000)} seconds before trying again. No partial results were exported.`, 429);
+      }
+    }
+  }
+  private async request(path: string, params: Record<string, string | number>): Promise<unknown> {
     this.signal?.throwIfAborted();
     const url = new URL(API_BASE + path);
     for (const [key, value] of Object.entries(params)) url.searchParams.set(key, String(value));
@@ -83,11 +134,12 @@ export class FestoClient {
           `Festo denied access. Check API account permissions or access restrictions.${wait}`,
           403,
         );
-      if (response.status === 429)
-        throw new FestoError(
-          `Festo has limited the request rate.${wait || " Please try again later."}`,
-          429,
-        );
+      if (response.status === 429) {
+        const error = new FestoError("Festo has limited the request rate.", 429);
+        error.retryMs = retryAfterMs(response.headers);
+        await response.body?.cancel();
+        throw error;
+      }
       if (response.status === 404)
         throw new FestoError("A machine or incident no longer exists. Run the query again.", 404);
       throw new FestoError(
@@ -256,6 +308,14 @@ export async function collectRepairs(
   signal?: AbortSignal,
 ) {
   const { start, end } = dateBounds(filters.from, filters.to);
+  const rows: RepairRow[] = [];
+  let scanned = 0;
+  client.onRateLimit = (seconds) => onProgress({
+    type: "progress",
+    message: `Festo rate limit reached. Waiting at least ${seconds} seconds, then resuming automatically. You can cancel this query.`,
+    scanned,
+    matched: rows.length,
+  });
   const machines = await client.machines();
   const selected = filters.machineIds.map((id) => machines.find((m) => m.id === id));
   if (selected.some((m) => !m))
@@ -263,8 +323,6 @@ export async function collectRepairs(
       "A selected machine no longer exists or is inaccessible. Reconnect to reload machines.",
       400,
     );
-  const rows: RepairRow[] = [];
-  let scanned = 0;
   const taskIds = new Set<string>();
   for (const machine of selected as Machine[]) {
     onProgress({
@@ -329,7 +387,7 @@ export async function collectRepairs(
             modifiedAt: task.modifiedAt ?? "",
             modifiedBy: task.modifiedBy ?? "",
             comments: JSON.stringify(task.comments ?? []),
-            customFields: JSON.stringify(task.customFields ?? []),
+            ...repairCustomFields(task.customFields),
           });
           if (rows.length > 100000)
             throw new FestoError(

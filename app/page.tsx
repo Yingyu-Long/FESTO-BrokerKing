@@ -357,7 +357,14 @@ export default function Home() {
             SMARTENANCE<span className="brand-sub">Repair data export</span>
           </span>
         </div>
-        <span className="local-badge">Local workspace</span>
+        <Image
+          unoptimized
+          src="/festo-logo.png"
+          alt="FESTO"
+          width={264}
+          height={70}
+          className="festo-logo"
+        />
       </header>
       <div className="content">
         <div className="page-heading">

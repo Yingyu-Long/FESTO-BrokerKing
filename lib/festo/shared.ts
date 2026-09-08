@@ -71,7 +71,13 @@ export const CSV_COLUMNS: {
   { key: "modifiedAt", label: "Task modified at (UTC+8)", time: true },
   { key: "modifiedBy", label: "Task modified by" },
   { key: "comments", label: "Task comments (JSON)" },
-  { key: "customFields", label: "Task custom fields (JSON)" },
+  { key: "repairContent", label: "Repair content" },
+  { key: "repairTime", label: "Repair time" },
+  { key: "repairLaborHours", label: "Repair labor hours" },
+  { key: "downtime", label: "Downtime" },
+  { key: "repairRemarks", label: "Remarks" },
+  { key: "repairOwner", label: "Repair owner" },
+  { key: "repairCollaborators", label: "Collaborators" },
 ];
 export function csvCell(value: string) {
   // Quoting alone does not stop spreadsheet formula execution.
