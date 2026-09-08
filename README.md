@@ -1,73 +1,90 @@
-# Smartenance 维修任务 CSV 导出
+# Smartenance Repair Task CSV Export
 
-本地英文网页程序：连接 Festo AX Smartenance，选择一台或多台设备及创建日期，预览并导出故障记录下面的维修子任务（Repair tasks）。
+A local web application for Festo AX Smartenance. Select equipment and a creation date range, preview repair tasks attached to incidents, and export the results as CSV.
 
-## 启动与使用
+## Requirements and startup
 
-当前电脑已安装依赖。双击本目录的 **启动维修导出.command**，保留打开的终端窗口。浏览器会打开 <http://localhost:3000>。使用完成后，在终端按 Control+C 停止程序。
-
-也可以在此目录运行：
+Install Node.js 22.13 or later, then run these commands from the project directory:
 
 ```sh
+npm ci
 npm run dev
 ```
 
-1. 在页面填写 **Access Token**（可包含 `Bearer ` 前缀），或切换到 **API account**，输入 Smartenance Premium API 账号和密码。
-2. 连接后，按设备名称或编号搜索，可多选或全选。
-3. 选择维修任务的创建日期范围，点击“Find repair tasks”。
-4. 查询完整结束后点击“Export all to CSV”。表格每页预览 20 条，导出包含全部查询结果。
+Open <http://localhost:3000>. Keep the terminal open while using the application; press Control+C to stop it.
 
-程序不会自动保存账号密码或令牌。令牌只在页面内存中使用；刷新或断开连接后需要重新登录。不要把凭证发到聊天中。请求由本机服务转发到固定的 Festo 官方地址，未配置云服务或数据库。
+On macOS, you can also double-click `启动维修导出.command` to start the application and open the browser.
 
-## 时间和导出语义
-
-- 筛选字段严格为 `repairTasks[].createdAt`，不是故障创建时间、发生时间或修改时间。
-- 使用北京时间 `UTC+8`，起止日期包含全天。例如 9 月 1 日至 9 月 8 日等价于 UTC `[8月31日16:00, 9月8日16:00)`。
-- 首先完整读取所选设备的故障列表，再读取故障详情的 `repairTasks`。不把日期直接传给故障列表的 `from/to`，避免漏掉较早发生的故障中后来创建的维修任务。
-- 无维修子任务的故障不会产生 CSV 行。`Information` / `Maintenance` 日志不作为故障维修子任务导出。
-- 维修结果使用 `Unknown / Success / Failure`，显示为“Not recorded / Success / Failure”，不推断任务完成时间。
-- 维修子任务没有独立的完成时间。导出中的“故障修复时间”是所属故障的 `fixedDateTime`，不能替代子任务完成时间。
-- 结果按维修任务创建时间倒序排列。CSV 有 UTF-8 BOM、英文表头、逗号分隔和 CRLF 行结尾；逗号、双引号和换行按 CSV 规则转义。可能被 Excel 当作公式的文字会加前导单引号。
-
-导出列：设备名称、设备编号、设备 ID、故障编号、故障 ID、故障摘要、故障状态、故障发生时间、故障修复时间、故障描述、故障原因、维修任务 ID、维修任务描述、维修结果、任务创建时间、任务创建人、任务修改时间、任务修改人、任务评论 JSON、任务自定义字段 JSON。所有时间列按北京时间输出。图片和附件本体不下载。
-
-## API 认证
-
-以 [Festo API 规范](https://developers.festo.com/docs/digismartenance-premiumpublicprod/1/overview) 和 [Smartenance 认证说明](https://developers.festo.com/smartenance-authentication) 为依据，核对日期为 2026-09-08。
-
-- API 根地址：`https://api.festo.com/apps/smartenance/v1`
-- 使用 `Authorization: Bearer <access_token>`，按需发送 `SMRTNC-LANGUAGE: en`。
-- 读取接口：`GET /machines`、`GET /incidents?machineId=...&offset=...&limit=...`、`GET /incidents/{logId}`。
-- 故障列表使用文档中的分页字段 `items/count/offset/total`；故障列表单页 200 条，读完所有分页。设备列表使用官方 `limit=-1` 参数读取全部设备，并核对返回总数，不以 200 台为上限。
-- 文档对故障列表和详情列出的角色要求不同；账号必须同时具备相应接口权限。普通网页登录账号不一定拥有 Premium API 权限。
-- Token 通常有效约一小时。遇到 401 立即停止，不自动用失效令牌重试；403 或 429 显示等待信息，不自动重复请求。
-- 官方认证页面的主地址与示例分别列出 `b2c_1_apisignin_ropc` 和 `b2c_1_ropc_apisignin`。账号登录默认使用主地址的前者，在“Trouble signing in?”中可以手动选后者。本程序不会自动轮流尝试密码。已有令牌可直接连接，跳过这个差异。
-
-## 边界和验证
-
-任何设备、分页或详情读取失败，整次查询失败，不允许将部分结果当作完整 CSV 导出。支持主动取消和单请求 30 秒超时。分页总数变化或重复记录会要求重新查询。API 不提供快照一致性承诺；大批量查询时，最好避开持续批量修改的时间段。
-
-设备列表与全选不设 200 / 500 台数量限制。为控制内存，单台最多扫描 100,000 条日志，导出结果最多 100,000 条维修任务；达到限制会明确报错。历史故障较多时，扫描可能较慢，即使选择了较短的任务创建日期范围，也需要读取旧故障以避免漏单。
-
-已用模拟接口测试：跨页读取、旧故障的新维修任务、北京时间边界、中文 CSV、公式转义、401 不重试、权限/限流提示、取消和部分失败。**尚未使用你的真实账号验证数据**；正式使用前建议选一台设备、较短时间范围，与 Smartenance 中的数据核对一次。
+To build and run the local production version:
 
 ```sh
-npm test
+npm run build
+npm start
+```
+
+Both development and production servers bind to the local loopback address.
+
+## Using the application
+
+1. Enter an **Access Token** (with or without the `Bearer ` prefix), or select **API account** and enter your Smartenance Premium API username and password.
+2. Connect, search equipment by name or number, and select one, multiple, or all devices.
+3. Choose the repair task creation date range and click **Find repair tasks**.
+4. Wait for the query to finish, then click **Export all to CSV**. The preview displays 20 rows per page; the export contains all query results.
+
+Credentials are not saved automatically. The browser keeps authentication information in memory; refreshing the page or disconnecting requires signing in again. Requests pass through the local Node.js server to fixed official Festo endpoints. No cloud service or database is configured.
+
+The interface, error messages, CSV headers, and export filenames are in English. Equipment names and repair content retain their original source language.
+
+## Date filtering and CSV output
+
+- Filtering uses `repairTasks[].createdAt`, the repair task creation time.
+- Dates use UTC+8 (Beijing time), including the entire start and end dates. For example, September 1–8 corresponds to the UTC interval `[August 31 16:00, September 8 16:00)`.
+- The application reads every incident page for the selected equipment, then retrieves incident details and their repair tasks. It does not filter incident creation dates, so newer repair tasks attached to older incidents are included.
+- Incidents without repair tasks produce no CSV rows. Information and Maintenance logs are excluded.
+- Repair outcomes are displayed as **Not recorded**, **Success**, or **Failure**.
+- Repair tasks have no separate completion timestamp. The incident's `fixedDateTime` is exported as the incident fix time; it is not a repair task completion time.
+- Results are sorted by repair task creation time, newest first.
+
+The CSV uses English headers, a UTF-8 BOM, comma separators, and CRLF line endings. Commas, quotes, and line breaks are escaped. Text that could be interpreted as a spreadsheet formula receives a leading apostrophe.
+
+Exported fields include equipment name, number, and ID; incident number, ID, summary, status, occurrence time, fix time, description, and cause; and repair task ID, description, outcome, creation time, creator, modification time, modifier, comments JSON, and custom fields JSON. All timestamp columns use UTC+8. Images and attachment contents are not downloaded.
+
+## API authentication and data access
+
+References: [Festo API documentation](https://developers.festo.com/docs/digismartenance-premiumpublicprod/1/overview) and [Smartenance authentication](https://developers.festo.com/smartenance-authentication).
+
+- API base URL: `https://api.festo.com/apps/smartenance/v1`.
+- Requests use `Authorization: Bearer <access_token>` and request English responses where applicable using `SMRTNC-LANGUAGE: en`.
+- Read endpoints: `GET /machines`, `GET /incidents?machineId=...&offset=...&limit=...`, and `GET /incidents/{logId}`.
+- Equipment is loaded using the official `limit=-1` parameter and checked against the returned total. There is no 200-device loading limit or 500-device selection limit.
+- Incident lists use the documented `items/count/offset/total` pagination fields, reading every page in batches of 200.
+- The API account must have permission to read both incident lists and incident details. A regular website login may not have Premium API access.
+- A 401 response stops the request without retrying the invalid token. Responses with status 403 or 429 show the relevant access or waiting information without automatic retries.
+
+The authentication documentation lists `b2c_1_apisignin_ropc` in its main URL and `b2c_1_ropc_apisignin` in its example. API account login defaults to the first policy; the second can be selected under **Trouble signing in?**. The application does not automatically try multiple password requests. An existing access token can be used directly.
+
+## Limits and consistency
+
+If any equipment, page, or detail request fails, the whole query fails and partial results cannot be exported as a complete CSV. Queries support cancellation and a 30-second timeout per request. Detected pagination total changes or duplicate records require a new query.
+
+To control memory usage, the application allows up to 100,000 scanned logs per device and 100,000 exported repair tasks. Exceeding a limit produces an explicit error. Queries may take time for equipment with extensive incident history, even when the selected repair task date range is short.
+
+The API does not guarantee a consistent snapshot across requests. Prefer querying when records are not undergoing bulk edits. Data has not been verified against your live account; compare a small date range for one device with Smartenance before relying on larger exports.
+
+## Development
+
+```sh
 npm run typecheck
 npm run build
 ```
 
-开发预览和生产本地服务均绑定回环地址，不作为局域网或公网服务使用。构建后可用 `npm start` 运行本地生产服务。移到其他电脑时需 Node.js 22.13+（建议 24 LTS），先执行 `npm ci`。
+Project structure:
 
-## 项目结构
+- `app/page.tsx`: connection form, equipment and date filters, results preview, and CSV download.
+- `app/api/connect/route.ts`: API account or token connection and equipment loading.
+- `app/api/repairs/route.ts`: streamed query progress and complete results.
+- `lib/festo/`: API client, pagination, filtering, CSV generation, and request validation.
+- `docs/api-reference.json`: reference extract of the official endpoints and response fields used by the application.
+- `public/brand-icon.png`: header and browser tab icon. Its original asset is `assets/tsconfig.json`, which is a PNG image despite its filename.
 
-- `app/page.tsx`：英文筛选界面、连接、预览和浏览器 CSV 下载。
-- `app/api/connect/route.ts`：账号或令牌连接、加载设备。
-- `app/api/repairs/route.ts`：查询进度流及完整结果。
-- `lib/festo/`：固定地址的 API 客户端、分页、任务筛选、CSV 和请求校验。
-- `tests/festo.test.ts`：接口与导出逻辑测试。
-- `docs/api-reference.json`：使用到的官方接口与响应字段摘录，便于后续维护。
-
-实现采用 React / TypeScript 与 Vinext，本地请求使用 Node.js 网络环境。此前 Workers 模拟环境在本机访问 api.festo.com 时出现内部连接错误，已切换为 Node.js；开发和生产启动命令均使用本地 Node.js 服务。可选 WebMCP 工具与页面操作共用逻辑，不返回任何认证凭证。
-
-界面、错误提示、CSV 表头和下载文件名使用英文；设备名称和维修内容保持源数据原文。页面左上角与浏览器标签图标使用 `public/brand-icon.png`，原图来自 `assets/tsconfig.json`（实际文件格式为 PNG）。
+Built with React, TypeScript, and Vinext, using Node.js for local API requests. Optional WebMCP tools share the interface's query and export logic and do not return authentication credentials.
