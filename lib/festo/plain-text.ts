@@ -26,8 +26,11 @@ const convert = compile({
 export function plainText(value: string | null | undefined): string {
   if (!value) return "";
   // Preserve ordinary text, including newlines and comparisons such as x < 5.
-  if (!/<\/?[a-z][\w:-]*(?:\s[^<>]*|\s*\/?)>/i.test(value) &&
-      !/&(?:#\d+|#x[\da-f]+|[a-z]+);/i.test(value)) return value;
+  if (
+    !/<\/?[a-z][\w:-]*(?:\s[^<>]*|\s*\/?)>/i.test(value) &&
+    !/&(?:#\d+|#x[\da-f]+|[a-z]+);/i.test(value)
+  )
+    return value;
   return convert(value)
     .replace(/\u00a0/g, " ")
     .replace(/[ \t]+\n/g, "\n")

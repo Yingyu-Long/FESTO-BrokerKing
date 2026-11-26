@@ -1,1 +1,41 @@
-node_modules
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Python virtual environments & caches
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Build outputs & framework caches
+.next/
+.vinext/
+dist/
+**/dist/
+release/
+output/
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Local database & runtime state
+.local/
+**/.local/
+
+# Offline Docker image archives & source tarballs
+*.tar
+*.tar.gz
+
+# OS & editor files
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+*.log
+npm-debug.log*

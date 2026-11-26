@@ -1,0 +1,250 @@
+import { useState } from "react";
+import { LoadingIndicator } from "@festo-ui/react";
+import { IconCheckStatus, IconConnected, IconFailure } from "@festo-ui/react-icons";
+import { useLocation, useNavigate } from "react-router-dom";
+import { Field, FormActions, PlcShell, SelectField } from "./PlcShell";
+import { configString, readMqttConfig, saveConnection } from "../storage";
+import type { SavedConnection } from "../storage";
+import { connectPlc, saveCurrentConfiguration } from "../configurationApi";
+import { isValidMqttPublishTopic } from "../../../../shared/mqttTopic.js";
+
+type DataBlock = {
+  id: number;
+  dataBlock: string;
+  polling: string;
+  size?: string;
+};
+
+function isDataBlock(value: unknown): value is DataBlock {
+  if (typeof value !== "object" || value === null) return false;
+  const dataBlock = value as Partial<DataBlock>;
+  return (
+    typeof dataBlock.id === "number" &&
+    typeof dataBlock.dataBlock === "string" &&
+    typeof dataBlock.polling === "string"
+  );
+}
+
+export default function Siemens() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const editConnection = (location.state as { connection?: SavedConnection } | null)?.connection;
+  const savedBlocks = editConnection?.config?.dataBlocks;
+  const [values, setValues] = useState({
+    id: editConnection?.id ?? "",
+    host: editConnection?.host ?? "",
+    port: configString(editConnection, "port", editConnection?.port ?? "102"),
+    rack: configString(editConnection, "rack", "0"),
+    slot: configString(editConnection, "slot", "1"),
+    mqttTopic: configString(editConnection, "mqttTopic", ""),
+  });
+  const [dataBlocks, setDataBlocks] = useState<DataBlock[]>([
+    ...(Array.isArray(savedBlocks) ? savedBlocks.filter(isDataBlock).slice(0, 1) : []),
+    ...(!Array.isArray(savedBlocks) || savedBlocks.filter(isDataBlock).length === 0
+      ? [{ id: 0, dataBlock: "", polling: "" }]
+      : []),
+  ]);
+  const [submitted, setSubmitted] = useState(false);
+  const [tested, setTested] = useState(false);
+  const [connectionStatus, setConnectionStatus] =
+    useState<SavedConnection["status"]>("disconnected");
+  const [connectionError, setConnectionError] = useState("");
+  const [testing, setTesting] = useState(false);
+  const set = (key: keyof typeof values) => (value: string) =>
+    setValues((current) => ({ ...current, [key]: value }));
+  const setDataBlock = (index: number, key: "dataBlock" | "polling") => (value: string) =>
+    setDataBlocks((current) =>
+      current.map((item, itemIndex) => (itemIndex === index ? { ...item, [key]: value } : item)),
+    );
+  const topicValid = !values.mqttTopic.trim() || isValidMqttPublishTopic(values.mqttTopic);
+  const valid = Boolean(
+    values.id &&
+    values.host &&
+    values.port &&
+    values.rack &&
+    values.slot &&
+    topicValid &&
+    dataBlocks.every((item) => item.dataBlock && item.polling),
+  );
+  const buildBackendConfig = () => {
+    return {
+      id: values.id,
+      previousId: editConnection?.id,
+      host: values.host,
+      port: Number(values.port),
+      rack: Number(values.rack),
+      slot: Number(values.slot),
+      polling: Number(dataBlocks[0]?.polling ?? 500),
+      dataBlocks: dataBlocks.map((item) => ({
+        range: item.dataBlock,
+        polling: Number(item.polling),
+        ...(item.size ? { size: Number(item.size) } : {}),
+      })),
+      messageLayout: "mip",
+      mqtt: readMqttConfig(),
+      mqttTopic: values.mqttTopic.trim(),
+    };
+  };
+  const connectToBackend = async () => {
+    setTesting(true);
+    try {
+      const result = await connectPlc(
+        "/api/plcs/siemens/connect",
+        buildBackendConfig(),
+        "Unable to connect to the Siemens PLC",
+      );
+      setConnectionStatus(result.status);
+      setConnectionError(result.connectionError ?? "");
+      return result;
+    } finally {
+      setTesting(false);
+    }
+  };
+  const save = async () => {
+    setSubmitted(true);
+    if (!valid) return;
+    const result = await connectToBackend();
+    saveConnection({
+      id: values.id,
+      recordId: editConnection?.recordId,
+      protocol: "s7",
+      host: values.host,
+      port: values.port,
+      details: `remote-rack: ${values.rack}, remote-slot: ${values.slot}, data-blocks: ${dataBlocks.map((item) => `${item.dataBlock}, polling: ${item.polling} ms`).join("; ")}`,
+      ...result,
+      config: { ...values, mqttTopic: values.mqttTopic.trim(), dataBlocks, messageLayout: "mip" },
+    });
+    await saveCurrentConfiguration();
+    navigate("/dashboard");
+  };
+  return (
+    <PlcShell>
+      <div className="fwe-add-layout">
+        <section className="fwe-siemens-card">
+          <form onSubmit={(event) => event.preventDefault()}>
+            <div className="fwe-form-title">
+              <h1>
+                PLC Details – <span>Siemens</span>
+              </h1>
+            </div>
+            <Field
+              label="Id"
+              value={values.id}
+              onChange={set("id")}
+              invalid={submitted && !values.id}
+              help="Please type in an Id for this PLC"
+            />
+            <div className="fwe-siemens-fields">
+              <SelectField
+                label="Protocol"
+                value="s7://"
+                onChange={() => undefined}
+                options={["s7://"]}
+              />
+              <Field
+                label="Hostname or IP"
+                value={values.host}
+                onChange={set("host")}
+                invalid={submitted && !values.host}
+              />
+              <Field
+                label="Port"
+                value={values.port}
+                onChange={set("port")}
+                invalid={submitted && !values.port}
+              />
+              <Field
+                label="Rack"
+                value={values.rack}
+                onChange={set("rack")}
+                invalid={submitted && !values.rack}
+              />
+              <Field
+                label="Slot"
+                value={values.slot}
+                onChange={set("slot")}
+                invalid={submitted && !values.slot}
+              />
+            </div>
+            <div className="fwe-test-row">
+              <button
+                type="button"
+                className="fwe-btn no-wrap"
+                aria-label="Test connection"
+                onClick={async () => {
+                  setTested(true);
+                  if (valid) await connectToBackend();
+                }}
+                disabled={testing}
+              >
+                <IconConnected />
+                Test connection
+              </button>
+              {testing && <LoadingIndicator size="small">Loading ...</LoadingIndicator>}
+              {tested && !valid && (
+                <div className="fwe-connection-error">
+                  <IconFailure />
+                  Please fill out all required fields correctly.
+                </div>
+              )}
+              {tested && valid && connectionStatus === "connected" && (
+                <span className="fwe-status fwe-status-connected">
+                  <IconCheckStatus aria-hidden="true" />
+                  Connected
+                </span>
+              )}
+              {tested && valid && connectionStatus === "disconnected" && (
+                <span className="fwe-status">
+                  <IconFailure aria-hidden="true" />
+                  {connectionError || "Connection failed"}
+                </span>
+              )}
+            </div>
+            <div className="fwe-data-heading">
+              <h2>MIP data block</h2>
+            </div>
+            <div className="fwe-data-blocks">
+              {dataBlocks.map((item, index) => (
+                <div className="fwe-data-block-row" key={item.id}>
+                  <Field
+                    label="Data block"
+                    value={item.dataBlock}
+                    onChange={setDataBlock(index, "dataBlock")}
+                    invalid={submitted && !item.dataBlock}
+                    help="DB containing FB_MIP_DB, for example DB1"
+                  />
+                  <Field
+                    label="Polling interval"
+                    value={item.polling}
+                    onChange={setDataBlock(index, "polling")}
+                    invalid={submitted && !item.polling}
+                    help="Interval in milliseconds"
+                    suffix="ms"
+                  />
+                </div>
+              ))}
+            </div>
+            <Field
+              label="MQTT topic"
+              value={values.mqttTopic}
+              onChange={set("mqttTopic")}
+              required={false}
+              help="Leave blank to generate festo-ax/pni/<Valve Terminal Id>/<Valve Id>/<Cylinder Id> from the PLC."
+            />
+            {!topicValid && (
+              <p className="fwe-connection-error" role="alert">
+                MQTT topics must not contain +, # or null characters and must fit within 65535 UTF-8
+                bytes.
+              </p>
+            )}
+          </form>
+        </section>
+        <FormActions
+          valid={valid}
+          onSave={save}
+          onCancel={() => navigate(editConnection ? "/dashboard" : "/add")}
+        />
+      </div>
+    </PlcShell>
+  );
+}

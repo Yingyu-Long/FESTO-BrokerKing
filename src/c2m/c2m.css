@@ -1,0 +1,932 @@
+/* Scoped MSE6-C2M styles for Unified Festo App */
+.c2m-scope {
+  --blue: #0076bd;
+  --border: #dbe3eb;
+  --muted: #586b7e;
+  --surface: #ffffff;
+  --surface-muted: #f3f6f9;
+  --ink: #182b40;
+  --input-border: #ccd7e1;
+  color: var(--ink);
+}
+.c2m-scope .badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 6px;
+  color: #617083;
+  background: #eef2f6;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 10px;
+}
+.c2m-scope .badge i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #c59a3d;
+}
+.c2m-scope .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #fff;
+  border: 1px solid var(--input-border);
+  white-space: nowrap;
+  min-height: 40px;
+  padding: 9px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  border-radius: 8px;
+  color: #324e64;
+  cursor: pointer;
+}
+.c2m-scope .button:hover:not(:disabled) {
+  color: var(--blue);
+  background: #edf6fc;
+  border-color: #86b9d8;
+}
+.c2m-scope .button.primary {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+.c2m-scope .button.primary:hover:not(:disabled) {
+  background: #006aa9;
+  color: #fff;
+}
+.c2m-scope .button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.c2m-scope .dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #168053;
+  flex-shrink: 0;
+}
+.c2m-scope .dot.muted {
+  background: #aab2b8;
+}
+.c2m-scope .text-button {
+  border: 0;
+  background: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0;
+  white-space: nowrap;
+  min-height: 28px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--blue);
+  cursor: pointer;
+}
+.c2m-scope .text-button:hover:not(:disabled) {
+  color: #005b8f;
+}
+.c2m-scope .text-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.c2m-scope .metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 20px;
+}
+.c2m-scope .metric-card,
+.c2m-scope .panel {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgb(24 43 64 / 4%);
+}
+.c2m-scope .metric-card {
+  padding: 20px 22px;
+}
+.c2m-scope .metric-label {
+  font-weight: 650;
+  font-size: 14px;
+  color: #476276;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.c2m-scope .metric-label svg {
+  color: #0076bd;
+}
+.c2m-scope .metric-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-size: 30px;
+  font-weight: 650;
+  margin: 16px 0 12px;
+  letter-spacing: -0.6px;
+}
+.c2m-scope .metric-value > span {
+  margin-left: 8px;
+  letter-spacing: 0;
+  color: #6b7d8b;
+  font-size: 13px;
+  font-weight: 400;
+}
+.c2m-scope .metric-bottom {
+  display: flex;
+  gap: 5px;
+  justify-content: space-between;
+  align-items: center;
+  line-height: 1.6;
+  color: #6b7d8b;
+  font-size: 12px;
+  min-height: 20px;
+}
+.c2m-scope .primary-grid,
+.c2m-scope .secondary-grid {
+  display: grid;
+  gap: 18px;
+  margin-bottom: 20px;
+}
+.c2m-scope .primary-grid {
+  grid-template-columns: minmax(350px, 1fr) minmax(0, 1.5fr);
+}
+.c2m-scope .secondary-grid {
+  grid-template-columns: minmax(0, 1.5fr) minmax(340px, 1fr);
+}
+.c2m-scope .panel-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  height: 60px;
+  padding: 0 24px;
+  border-bottom: 1px solid #e8edf2;
+}
+.c2m-scope .panel-heading h2 {
+  font-size: 17px;
+  font-weight: 650;
+  color: var(--ink);
+  margin: 0;
+}
+.c2m-scope .control-body {
+  padding: 22px 24px 0;
+}
+.c2m-scope .label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  color: #324e64;
+}
+.c2m-scope .label-row > span:first-child {
+  font-weight: 650;
+}
+.c2m-scope .mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 11px;
+  padding: 4px;
+  gap: 4px;
+  border-radius: 8px;
+  background: #edf3f7;
+  margin-bottom: 24px;
+}
+.c2m-scope .mode-switch button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  gap: 10px;
+  border: 0;
+  border-radius: 6px;
+  min-height: 38px;
+  padding: 8px;
+  background: transparent;
+  color: #61788a;
+  font-size: 14px;
+  cursor: pointer;
+}
+.c2m-scope .mode-switch button.selected {
+  background: #fff;
+  color: #006aa9;
+  box-shadow: 0 1px 3px rgb(24 43 64 / 9%);
+}
+.c2m-scope .setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.c2m-scope .setting-row strong {
+  font-weight: 650;
+  font-size: 14px;
+  color: #324e64;
+}
+.c2m-scope .switch {
+  background: #c2cbd1;
+  border: 0;
+  width: 40px;
+  height: 22px;
+  padding: 3px;
+  border-radius: 14px;
+  cursor: pointer;
+}
+.c2m-scope .switch span {
+  display: block;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+  width: 16px;
+  height: 16px;
+}
+.c2m-scope .switch.on {
+  background: var(--blue);
+}
+.c2m-scope .switch.on span {
+  transform: translateX(18px);
+}
+.c2m-scope .timer {
+  margin: 22px 0 18px;
+}
+.c2m-scope .timer strong {
+  font-weight: 400;
+  color: #535e67;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.c2m-scope .timer strong span {
+  color: #728592;
+}
+.c2m-scope .timer-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  row-gap: 12px;
+  color: #6b7d8b;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.c2m-scope .timer-notice {
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.c2m-scope .control-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid #edf0f2;
+  color: #558174;
+  min-height: 48px;
+  font-size: 14px;
+  padding: 14px 0;
+}
+.c2m-scope .control-status strong {
+  font-weight: 500;
+}
+.c2m-scope .segmented {
+  display: inline-flex;
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 3px;
+  background: #edf3f7;
+  border: 0;
+  border-radius: 6px;
+}
+.c2m-scope .segmented button {
+  border: 0;
+  min-height: 32px;
+  border-radius: 4px;
+  background: transparent;
+  padding: 6px 12px;
+  color: #61788a;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.c2m-scope .segmented button.selected {
+  background: #fff;
+  color: #006aa9;
+  box-shadow: 0 1px 3px rgb(24 43 64 / 8%);
+}
+.c2m-scope .chart-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 20px 24px 12px;
+  line-height: 1.6;
+  color: #6b7d8b;
+  font-size: 12px;
+}
+.c2m-scope .chart-meta > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #526c7c;
+}
+.c2m-scope .legend-line {
+  height: 2px;
+  width: 16px;
+  background: var(--blue);
+}
+.c2m-scope .chart {
+  padding: 16px 15px 8px;
+}
+.c2m-scope .chart svg {
+  width: 100%;
+  overflow: visible;
+  height: auto;
+  min-height: 180px;
+}
+.c2m-scope .chart text {
+  font-size: 12px;
+  fill: #718497;
+}
+.c2m-scope .chart-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 24px 18px;
+  line-height: 1.6;
+  color: #6b7d8b;
+  font-size: 12px;
+}
+.c2m-scope .parameter-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: 24px 0;
+}
+.c2m-scope .parameter-summary > div {
+  padding: 0 22px;
+  border-right: 1px solid #edf0f2;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.c2m-scope .parameter-summary > div:last-child {
+  border-right: 0;
+}
+.c2m-scope .parameter-summary span,
+.c2m-scope .consumption-body span {
+  font-weight: 650;
+  font-size: 13px;
+  color: #536e82;
+}
+.c2m-scope .parameter-summary strong,
+.c2m-scope .consumption-body strong {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-size: 24px;
+  color: var(--ink);
+}
+.c2m-scope .parameter-summary small,
+.c2m-scope .consumption-body small {
+  font-size: 12px;
+  color: #718497;
+}
+.c2m-scope .consumption-body {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 24px;
+}
+.c2m-scope .consumption-body > div {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.c2m-scope .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-width: 1050px;
+  padding: 24px;
+  gap: 22px 28px;
+}
+.c2m-scope .field {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.c2m-scope .field > span {
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: #324e64;
+}
+.c2m-scope .field input {
+  width: 100%;
+  background: #fff;
+  padding: 0 12px;
+  height: 44px;
+  font-size: 14px;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  color: var(--ink);
+}
+.c2m-scope .field input:hover {
+  border-color: #98b8cc;
+}
+.c2m-scope .input-unit {
+  display: flex;
+  position: relative;
+}
+.c2m-scope .input-unit input {
+  padding-right: 76px;
+}
+.c2m-scope .input-unit > span {
+  position: absolute;
+  right: 16px;
+  top: 13px;
+  font-size: 13px;
+  color: #647d8d;
+  pointer-events: none;
+}
+.c2m-scope .field small,
+.c2m-scope .form-actions > span {
+  color: #718497;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.c2m-scope .form-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 24px;
+  border-top: 1px solid var(--border);
+  background: #f6f9fb;
+  border-radius: 0 0 10px 10px;
+}
+.c2m-scope .form-actions > span {
+  margin-right: auto;
+}
+.c2m-scope .form-error {
+  padding: 0 24px 20px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #b53e31;
+}
+.c2m-scope .connection-grid {
+  display: block;
+}
+.c2m-scope .connection-grid > .panel {
+  border-left: 3px solid var(--blue);
+}
+.c2m-scope .manual-pressure {
+  display: grid;
+  gap: 9px;
+  margin: 24px 0 25px;
+  font-size: 14px;
+  color: #324e64;
+}
+.c2m-scope .manual-pressure-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.c2m-scope .manual-pressure-controls .field {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.c2m-scope .manual-pressure-controls .button {
+  min-height: 44px;
+}
+.c2m-scope .manual-pressure > small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.c2m-scope .manual-pressure > [role="alert"] {
+  color: #c93838;
+}
+.c2m-scope .device-notice {
+  margin: 0 0 18px;
+  padding: 12px 16px;
+  background: #edf6fc;
+  border: 1px solid #d5e6f2;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #2b6488;
+  overflow-wrap: anywhere;
+}
+.c2m-scope .panel > .device-notice {
+  margin: 18px 24px 0;
+}
+.c2m-scope .source-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 18px 0;
+}
+.c2m-scope .toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 90vw;
+  padding: 14px 22px;
+  background: #fff;
+  box-shadow: 0 4px 24px #243f5426;
+  border: 1px solid #d0e6e0;
+  color: #416d61;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.c2m-scope .modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: #1b2b3a66;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+.c2m-scope .modal {
+  background: #fff;
+  width: 450px;
+  max-width: 100%;
+  padding: 28px;
+  box-shadow: 0 12px 60px #15273933;
+  border-radius: 10px;
+  color: var(--ink);
+}
+.c2m-scope .modal-icon {
+  color: var(--blue);
+  margin-bottom: 17px;
+}
+.c2m-scope .modal h2 {
+  font-size: 21px;
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+.c2m-scope .modal p {
+  color: #78868e;
+  line-height: 1.9;
+  font-size: 15px;
+}
+.c2m-scope .modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+.c2m-scope .mqtt-page {
+  display: grid;
+  gap: 24px;
+}
+.c2m-scope .mqtt-connection-panel {
+  border-left: 3px solid var(--blue);
+}
+.c2m-scope .mqtt-connection-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  padding: 26px 24px 30px;
+  gap: 28px;
+}
+.c2m-scope .mqtt-connection-fields {
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.c2m-scope .mqtt-connection-fields .field {
+  gap: 10px;
+}
+.c2m-scope .mqtt-address-row {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr) 140px;
+  max-width: 760px;
+  gap: 22px;
+}
+.c2m-scope .mqtt-identity-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 180px;
+  max-width: 580px;
+  gap: 24px;
+  margin-top: 28px;
+}
+.c2m-scope .mqtt-connection-fields select,
+.c2m-scope .mqtt-connection-fields textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font: inherit;
+  padding: 10px 12px;
+}
+.c2m-scope .mqtt-connection-fields select {
+  height: 44px;
+}
+.c2m-scope .mqtt-connection-fields textarea {
+  resize: vertical;
+  font-family: monospace;
+  font-size: 12px;
+}
+.c2m-scope .mqtt-auth {
+  border: 0;
+  padding: 0;
+  margin: 30px 0 0;
+}
+.c2m-scope .mqtt-auth legend {
+  padding: 0;
+  font-weight: 650;
+  font-size: 14px;
+}
+.c2m-scope .mqtt-auth-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 28px;
+  margin-top: 16px;
+}
+.c2m-scope .mqtt-auth-options label {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.c2m-scope .mqtt-auth-options input {
+  accent-color: var(--blue);
+  width: 16px;
+  height: 16px;
+  margin: 0;
+}
+.c2m-scope .mqtt-credentials {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 24px;
+  max-width: 680px;
+}
+.c2m-scope .mqtt-certificates {
+  display: grid;
+  gap: 18px;
+  margin-top: 24px;
+}
+.c2m-scope .mqtt-test-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 28px;
+}
+.c2m-scope .mqtt-test-button {
+  color: var(--blue);
+  background: #eaf4fa;
+  border-color: #d4e5ee;
+}
+.c2m-scope .mqtt-test-success {
+  color: #22775b;
+  font-size: 13px;
+}
+.c2m-scope .mqtt-error {
+  color: #b42318;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+  margin: 16px 0 0;
+}
+.c2m-scope .mqtt-save-actions {
+  border-left: 1px solid var(--border);
+  padding-left: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.c2m-scope .mqtt-save-actions .button {
+  min-height: 44px;
+  justify-content: center;
+}
+.c2m-scope .mqtt-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+.c2m-scope .mqtt-layout > .panel {
+  min-width: 0;
+}
+.c2m-scope .mqtt-form {
+  max-width: none;
+}
+.c2m-scope .mqtt-wide {
+  grid-column: 1 / -1;
+}
+.c2m-scope .mqtt-form .field {
+  gap: 8px;
+}
+.c2m-scope .mqtt-layout .form-actions {
+  flex-wrap: wrap;
+}
+.c2m-scope .mqtt-layout .form-actions > span {
+  flex-basis: 100%;
+  line-height: 1.6;
+}
+.c2m-scope .mqtt-output-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-height: 44px;
+}
+.c2m-scope .mqtt-output-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border: 1px solid #dce4eb;
+  border-radius: 20px;
+  background: #edf2f6;
+  color: #677b8e;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+}
+.c2m-scope .mqtt-output-state::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8b9cac;
+}
+.c2m-scope .mqtt-output-toggle[data-enabled="true"] .mqtt-output-state {
+  color: #0076bd;
+  background: #e7f3fb;
+  border-color: #c8e5f6;
+}
+.c2m-scope .mqtt-output-toggle[data-enabled="true"] .mqtt-output-state::before {
+  background: #0088cc;
+}
+.c2m-scope .mqtt-output-switch {
+  position: relative;
+  width: 60px;
+  height: 44px;
+  padding: 0;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 24px;
+  background: transparent;
+  cursor: pointer;
+}
+.c2m-scope .mqtt-output-switch::before {
+  content: "";
+  position: absolute;
+  inset: 6px 0;
+  border: 1px solid #c4d0db;
+  border-radius: 18px;
+  background: #d4dee7;
+}
+.c2m-scope .mqtt-output-switch[aria-checked="true"]::before {
+  background: linear-gradient(135deg, #1297d4, #0076bd);
+  border-color: #0076bd;
+}
+.c2m-scope .mqtt-switch-thumb {
+  position: absolute;
+  top: 10px;
+  left: 4px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #fff;
+  color: #8a9cab;
+  box-shadow: 0 2px 4px #1b38532b;
+  transition:
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 180ms;
+}
+.c2m-scope .mqtt-output-switch[aria-checked="true"] .mqtt-switch-thumb {
+  transform: translateX(28px);
+  color: #0076bd;
+}
+.c2m-scope .mqtt-output-body {
+  padding: 8px 24px 24px;
+}
+.c2m-scope .mqtt-table-scroll {
+  overflow-x: auto;
+}
+.c2m-scope .mqtt-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 14px;
+}
+.c2m-scope .mqtt-table th,
+.c2m-scope .mqtt-table td {
+  padding: 16px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.c2m-scope .mqtt-table th {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.c2m-scope .mqtt-table td:first-child {
+  color: var(--blue);
+}
+.c2m-scope .mqtt-preview {
+  margin: 24px 0 0;
+  padding: 18px;
+  border-radius: 8px;
+  background: var(--surface-muted);
+  font-size: 13px;
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.c2m-scope .mqtt-details {
+  margin: 24px 0 0;
+  font-size: 13px;
+}
+.c2m-scope .mqtt-details > div {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr);
+  gap: 12px;
+  margin-top: 16px;
+}
+.c2m-scope .mqtt-details dt {
+  color: var(--muted);
+}
+.c2m-scope .mqtt-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.c2m-scope .config-field-group {
+  min-width: 0;
+}
+.c2m-scope .consumption-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 13px 14px;
+  border: 1px solid #e5edf2;
+  border-radius: 8px;
+  background: #f7fafc;
+}
+.c2m-scope .switch-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.c2m-scope .switch-label strong {
+  font-size: 14px;
+  font-weight: 500;
+  color: #2c3e50;
+}
+.c2m-scope .switch-label small {
+  font-size: 12px;
+  color: #6c7a89;
+}
+
+@media (max-width: 960px) {
+  .c2m-scope .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .c2m-scope .primary-grid,
+  .c2m-scope .secondary-grid,
+  .c2m-scope .mqtt-layout {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 720px) {
+  .c2m-scope .form-grid,
+  .c2m-scope .mqtt-connection-form {
+    grid-template-columns: 1fr;
+  }
+  .c2m-scope .mqtt-save-actions {
+    flex-direction: row;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+    padding: 20px 0 0;
+  }
+  .c2m-scope .parameter-summary {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px 0;
+  }
+  .c2m-scope .parameter-summary > div:nth-child(2) {
+    border-right: 0;
+  }
+}

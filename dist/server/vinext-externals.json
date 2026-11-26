@@ -1,4 +1,9 @@
 [
+  "pg",
+  "mqtt",
+  "node-opcua",
+  "modbus-serial",
+  "node-snap7",
   "react",
   "react-dom",
   "ipaddr.js"

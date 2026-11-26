@@ -1,11 +1,16 @@
 "use client";
 import Image from "next/image";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  Activity,
   ArrowDownToLine,
+  Bot,
   Cable,
   CalendarDays,
+  Cpu,
   Factory,
+  Database,
+  RefreshCw,
   ListFilter,
   LoaderCircle,
   Search,
@@ -44,32 +49,86 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { Pagination, PaginationContent, PaginationItem } from "@/components/ui/pagination";
-import { chinaDate, formatTime, resultLabels, toCsv, validateFilters } from "@/lib/festo/shared";
-import type { ExportEvent, Filters, Machine, RepairRow } from "@/lib/festo/types";
-
+import {
+  chinaDate,
+  customFieldColumns,
+  filterExistingResult,
+  formatTime,
+  INCIDENT_STATE_OPTIONS,
+  incidentStateLabels,
+  resultLabels,
+  toCsv,
+  validateFilters,
+} from "@/lib/festo/shared";
+import type {
+  ExportEvent,
+  Filters,
+  IncidentStateFilter,
+  Machine,
+  RepairResult,
+  SyncResult,
+} from "@/lib/festo/types";
 import { translate, type Language } from "@/lib/festo/i18n";
+import { readOperationResult } from "@/lib/festo/stream-client";
+import ConnectorModule from "@/src/connector/ConnectorModule";
+import C2MModule from "@/src/c2m/App";
+import DebugAgentModule, { type DebugAgentView } from "@/src/debug-agent/DebugAgentModule";
 
-type Result = { rows: RepairRow[]; scanned: number; filters: Filters };
+type Result = RepairResult;
 const firstPolicy = "b2c_1_apisignin_ropc";
+
 export default function Home() {
+  const [mounted, setMounted] = useState(false);
   const [language, setLanguage] = useState<Language>("en");
+  const [dbHealthy, setDbHealthy] = useState<boolean | null>(null);
   const t = (text: string) => translate(text, language);
+  const zh = language === "zh";
+
   useEffect(() => {
+    setMounted(true);
     try {
-      const saved = localStorage.getItem("festo-language");
+      const saved =
+        localStorage.getItem("festo-language") || localStorage.getItem("festo-c2m-language");
       if (saved === "en" || saved === "zh") setLanguage(saved);
     } catch {}
   }, []);
+
   useEffect(() => {
     document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
-    document.title = translate("Repair task export", language) + " · Smartenance";
+    document.title = "Broker King · Connector / C2M / Smartenance";
   }, [language]);
+
   function changeLanguage(value: Language) {
     setLanguage(value);
+    setPage(1);
     try {
       localStorage.setItem("festo-language", value);
+      localStorage.setItem("festo-c2m-language", value);
     } catch {}
   }
+
+  useEffect(() => {
+    let cancelled = false;
+    async function checkHealth() {
+      try {
+        const res = await fetch("/api/health", { cache: "no-store" });
+        const data = (await res.json().catch(() => null)) as {
+          ok?: boolean;
+          database?: boolean;
+        } | null;
+        if (!cancelled) setDbHealthy(Boolean(res.ok && data?.database));
+      } catch {
+        if (!cancelled) setDbHealthy(false);
+      }
+    }
+    void checkHealth();
+    const timer = window.setInterval(() => void checkHealth(), 10000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
   const today = chinaDate();
   const [mode, setMode] = useState("token");
   const [tokenDraft, setTokenDraft] = useState("");
@@ -81,27 +140,94 @@ export default function Home() {
   const [selected, setSelected] = useState<string[]>([]);
   const [from, setFrom] = useState(today.slice(0, 8) + "01");
   const [to, setTo] = useState(today);
+  const [incidentState, setIncidentState] = useState<IncidentStateFilter>("All");
   const [connecting, setConnecting] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSync, setLastSync] = useState<SyncResult | null>(null);
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [result, setResult] = useState<Result | null>(null);
+  const sourceResult = useRef<Result | null>(null);
+  const snapshotRows = sourceResult.current?.rows;
+  const customColumns = useMemo(
+    () => customFieldColumns(snapshotRows ?? [], language),
+    [snapshotRows, language],
+  );
   const [page, setPage] = useState(1);
+  const [activeProject, setActiveProject] = useState<
+    "repairs" | "c2m" | "connector" | "debug-agent"
+  >("connector");
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [connectorPath, setConnectorPath] = useState("/dashboard");
+  const [connectorNavReq, setConnectorNavReq] = useState({
+    path: "/dashboard",
+    seq: 0,
+  });
+  const [c2mPath, setC2mPath] = useState("/overview");
+  const [c2mNavReq, setC2mNavReq] = useState({ path: "/overview", seq: 0 });
+  const [repairsTab, setRepairsTab] = useState<"connection" | "database" | "filters" | "results">(
+    "connection",
+  );
+  const [debugAgentView, setDebugAgentView] = useState<DebugAgentView>("chat");
   const abortRef = useRef<AbortController | null>(null);
   const lock = useRef(false);
   const anchor = useComboboxAnchor();
-  const latest = useRef({ machines, selected, from, to, result, busy, token });
+  const latest = useRef({
+    machines,
+    selected,
+    from,
+    to,
+    incidentState,
+    result,
+    busy,
+    token,
+  });
   useLayoutEffect(() => {
-    latest.current = { machines, selected, from, to, result, busy, token };
-  }, [machines, selected, from, to, result, busy, token]);
+    latest.current = {
+      machines,
+      selected,
+      from,
+      to,
+      incidentState,
+      result,
+      busy,
+      token,
+    };
+  }, [machines, selected, from, to, incidentState, result, busy, token]);
   useEffect(() => () => abortRef.current?.abort(), []);
+
   function clearResult() {
+    sourceResult.current = null;
     setResult(null);
     setPage(1);
     setNotice("");
     setError("");
   }
+
+  function changeFilters(patch: Partial<Filters>) {
+    const current = latest.current;
+    const filters = {
+      machineIds: current.selected,
+      from: current.from,
+      to: current.to,
+      incidentState: current.incidentState,
+      ...patch,
+    };
+    setSelected(filters.machineIds);
+    setFrom(filters.from);
+    setTo(filters.to);
+    setIncidentState(filters.incidentState);
+    const filtered = filterExistingResult(sourceResult.current, filters);
+    setResult(filtered);
+    setPage(1);
+    setError("");
+    setNotice(
+      filtered ? "Filtered from the last completed query. Click Find repair tasks to refresh." : "",
+    );
+  }
+
   async function connect(event: React.SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     if (lock.current) return;
@@ -111,6 +237,7 @@ export default function Home() {
     setToken("");
     setMachines([]);
     setSelected([]);
+    setLastSync(null);
     try {
       const response = await fetch("/api/connect", {
         method: "POST",
@@ -147,6 +274,7 @@ export default function Home() {
       lock.current = false;
     }
   }
+
   function disconnect() {
     abortRef.current?.abort();
     setToken("");
@@ -154,8 +282,10 @@ export default function Home() {
     setPassword("");
     setMachines([]);
     setSelected([]);
+    setLastSync(null);
     clearResult();
   }
+
   async function query(input?: Filters) {
     if (lock.current) throw new Error("Another operation is in progress. Please wait.");
     const current = latest.current;
@@ -165,6 +295,7 @@ export default function Home() {
         machineIds: current.selected,
         from: current.from,
         to: current.to,
+        incidentState: current.incidentState,
       },
     );
     if (filters.machineIds.some((id) => !current.machines.some((m) => m.id === id)))
@@ -172,6 +303,7 @@ export default function Home() {
     setSelected(filters.machineIds);
     setFrom(filters.from);
     setTo(filters.to);
+    setIncidentState(filters.incidentState);
     clearResult();
     setBusy(true);
     lock.current = true;
@@ -232,8 +364,15 @@ export default function Home() {
         throw new Error(
           "The query did not finish. Please try again. Partial results cannot be exported.",
         );
-      setResult({ ...finalResult, filters });
+      const completed = {
+        ...finalResult,
+        filters,
+        fetchedAt: new Date().toISOString(),
+      };
+      sourceResult.current = completed;
+      setResult(completed);
       setPage(1);
+      setDbHealthy(true);
       return { count: finalResult.rows.length, scanned: finalResult.scanned };
     } catch (e) {
       const message = abort.signal.aborted
@@ -250,11 +389,65 @@ export default function Home() {
       setProgress("");
     }
   }
+
+  async function syncAll() {
+    if (lock.current) return;
+    const current = latest.current;
+    if (!current.token) return;
+    lock.current = true;
+    setBusy(true);
+    setSyncing(true);
+    setLastSync(null);
+    clearResult();
+    setProgress("Loading machines…");
+    const abort = new AbortController();
+    abortRef.current = abort;
+    try {
+      const response = await fetch("/api/sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${current.token}`,
+        },
+        body: "{}",
+        cache: "no-store",
+        signal: abort.signal,
+      });
+      const completed = await readOperationResult<SyncResult>(response, setProgress, () =>
+        setToken(""),
+      );
+      abort.signal.throwIfAborted();
+      setLastSync(completed);
+      setMachines(completed.machines);
+      setSelected((ids) => ids.filter((id) => completed.machines.some((m) => m.id === id)));
+      setDbHealthy(true);
+      setNotice(
+        `Sync complete: ${completed.syncedMachines} machines · ${completed.incidents} incidents.`,
+      );
+    } catch (error) {
+      setError(
+        abort.signal.aborted
+          ? "Sync cancelled. Completed machines were saved; unfinished machines keep their previous data."
+          : `${error instanceof Error ? error.message : "Query failed."}`,
+      );
+      if (!abort.signal.aborted)
+        setNotice(
+          "Sync did not finish. Completed machines were saved; unfinished machines keep their previous data.",
+        );
+    } finally {
+      setBusy(false);
+      setSyncing(false);
+      lock.current = false;
+      abortRef.current = null;
+      setProgress("");
+    }
+  }
+
   function download() {
     const current = latest.current;
     if (!current.result?.rows.length || current.busy)
       throw new Error("Complete a query with matching results before exporting.");
-    const csv = toCsv(current.result.rows, language),
+    const csv = toCsv(current.result.rows, language, customColumns),
       blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob),
       link = document.createElement("a");
@@ -270,534 +463,922 @@ export default function Home() {
     );
     return { filename, count: current.result.rows.length };
   }
+
   const actions = useRef({ query, download });
   useLayoutEffect(() => {
     actions.current = { query, download };
   });
-  useEffect(() => {
-    type Tool = {
-      name: string;
-      description: string;
-      inputSchema: object;
-      annotations: object;
-      execute: (value: unknown) => unknown;
-    };
-    const context = (
-      document as Document & {
-        modelContext?: {
-          registerTool: (tool: Tool, options: { signal: AbortSignal }) => unknown;
-        };
-      }
-    ).modelContext;
-    if (!context?.registerTool) return;
-    const lifecycle = new AbortController();
-    const tools: Tool[] = [
-      {
-        name: "query_repair_tasks",
-        description:
-          "Query repair tasks by machine and creation date in UTC+8 using the connected Smartenance account, and update the page results. The user must connect an account first.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            machineIds: {
-              type: "array",
-              items: { type: "string" },
-              minItems: 1,
-            },
-            from: { type: "string", format: "date" },
-            to: { type: "string", format: "date" },
-          },
-          required: ["machineIds", "from", "to"],
-          additionalProperties: false,
-        },
-        annotations: { readOnlyHint: false, untrustedContentHint: true },
-        execute: (input) => actions.current.query(validateFilters(input)),
-      },
-      {
-        name: "get_repair_export_state",
-        description:
-          "Read available machines, current filters and result count. Credentials are never returned.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-          additionalProperties: false,
-        },
-        annotations: { readOnlyHint: true, untrustedContentHint: true },
-        execute: () => {
-          const s = latest.current;
-          return {
-            connected: !!s.token,
-            machines: s.machines,
-            filters: { machineIds: s.selected, from: s.from, to: s.to },
-            busy: s.busy,
-            count: s.result?.rows.length ?? null,
-          };
-        },
-      },
-      {
-        name: "download_repair_csv",
-        description:
-          "Download the complete repair task query results shown on this page as a CSV file.",
-        inputSchema: {
-          type: "object",
-          properties: {},
-          additionalProperties: false,
-        },
-        annotations: { readOnlyHint: false, untrustedContentHint: true },
-        execute: () => actions.current.download(),
-      },
-    ];
-    for (const tool of tools) {
-      try {
-        void Promise.resolve(context.registerTool(tool, { signal: lifecycle.signal })).catch(
-          () => {},
-        );
-      } catch {}
-    }
-    return () => lifecycle.abort();
-  }, []);
+
   const pages = result ? Math.max(1, Math.ceil(result.rows.length / 20)) : 1;
   const machineLabel = (id: string) => {
     const m = machines.find((item) => item.id === id);
     return m ? `${m.name || t("Unnamed machine")}${m.number ? ` · ${m.number}` : ""}` : id;
   };
+
+  const showProject = useCallback((project: typeof activeProject) => {
+    setActiveProject(project);
+    setProjectMenuOpen(false);
+  }, []);
+
+  useEffect(() => {
+    const requestedProject = new URLSearchParams(window.location.search).get("project");
+    if (
+      requestedProject === "repairs" ||
+      requestedProject === "c2m" ||
+      requestedProject === "connector" ||
+      requestedProject === "debug-agent" ||
+      requestedProject === "hermes"
+    ) {
+      setActiveProject(requestedProject === "hermes" ? "debug-agent" : requestedProject);
+      window.history.replaceState(null, "", window.location.pathname);
+      return;
+    }
+    try {
+      const saved = localStorage.getItem("festo-active-project");
+      if (
+        saved === "repairs" ||
+        saved === "c2m" ||
+        saved === "connector" ||
+        saved === "debug-agent" ||
+        saved === "hermes"
+      ) {
+        setActiveProject(saved === "hermes" ? "debug-agent" : saved);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("festo-active-project", activeProject);
+    } catch {}
+  }, [activeProject]);
+
+  useEffect(() => {
+    if (!projectMenuOpen) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setProjectMenuOpen(false);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [projectMenuOpen]);
+
   return (
-    <main className="workspace">
-      <header className="topbar">
-        <div className="brand">
-          <Image
-            unoptimized
-            src="/brand-icon.png"
-            alt={t("Company logo")}
-            width={40}
-            height={40}
-            className="brand-icon"
-          />
-          <span>
-            SMARTENANCE<span className="brand-sub">{t("Repair data export")}</span>
-          </span>
+    <div className="unified-app-shell">
+      {/* Slide-out Application Switcher Sidebar Drawer */}
+      <div
+        className={`unified-sidebar-backdrop ${projectMenuOpen ? "is-open" : ""}`}
+        aria-hidden={!projectMenuOpen}
+        onClick={() => setProjectMenuOpen(false)}
+      />
+      <aside
+        className={`unified-sidebar ${projectMenuOpen ? "is-open" : ""}`}
+        aria-label={zh ? "应用模块切换侧边栏" : "Application switcher sidebar"}
+        aria-hidden={!projectMenuOpen}
+      >
+        <div className="unified-sidebar-header">
+          <div className="unified-sidebar-brand">
+            <Image
+              unoptimized
+              src="/brand-icon.png"
+              alt={t("Company logo")}
+              width={34}
+              height={34}
+              className="brand-icon"
+            />
+            <div>
+              <strong className="unified-sidebar-title">Broker King</strong>
+              <span className="unified-sidebar-subtitle">
+                {zh ? "选择工作区模块" : "Workspace Modules"}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="unified-sidebar-close"
+            aria-label={zh ? "关闭侧边栏" : "Close sidebar"}
+            onClick={() => setProjectMenuOpen(false)}
+          >
+            <X size={18} />
+          </button>
         </div>
-        <div className="header-settings">
-          <label className="language-setting">
-            <select
-              aria-label="Language / 语言"
-              value={language}
-              onChange={(event) => changeLanguage(event.target.value as Language)}
+
+        <nav
+          className="unified-sidebar-nav"
+          aria-label={zh ? "应用模块导航" : "Application modules"}
+        >
+          <div className="unified-sidebar-section-label">{zh ? "应用模块" : "APPLICATIONS"}</div>
+          {(
+            [
+              {
+                id: "connector",
+                title: "Connector",
+                subtitle: zh
+                  ? "Modbus / S7 / OPC UA 采集与 MQTT 发布"
+                  : "Modbus / S7 / OPC UA & MQTT Publisher",
+                icon: <Cpu size={19} />,
+              },
+              {
+                id: "c2m",
+                title: "MSE6-C2M",
+                subtitle: zh
+                  ? "CPX-FB36 实时监测、参数与节能控制"
+                  : "CPX-FB36 Telemetry & Energy Control",
+                icon: <Activity size={19} />,
+              },
+              {
+                id: "repairs",
+                title: "Smartenance",
+                subtitle: zh
+                  ? "设备故障维修记录同步与 CSV 导出"
+                  : "Incident Sync & Repair Task CSV Export",
+                icon: <Wrench size={19} />,
+              },
+            ] as const
+          ).map((item, idx) => {
+            const isSelected = activeProject === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                style={{ transitionDelay: projectMenuOpen ? `${idx * 40}ms` : "0ms" }}
+                className={`unified-sidebar-item ${isSelected ? "is-selected" : ""}`}
+                onClick={() => showProject(item.id)}
+              >
+                <span className="unified-sidebar-item-icon">{item.icon}</span>
+                <span className="unified-sidebar-item-text">
+                  <strong>{item.title}</strong>
+                  <small>{item.subtitle}</small>
+                </span>
+                <span className="unified-sidebar-item-check" aria-hidden="true">
+                  ✓
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className="unified-sidebar-footer">
+          <div className={`unified-sidebar-db ${dbHealthy ? "is-healthy" : ""}`}>
+            <Database size={15} />
+            <span>
+              {dbHealthy
+                ? zh
+                  ? "共享 PostgreSQL 数据库在线"
+                  : "Shared PostgreSQL Online"
+                : zh
+                  ? "PostgreSQL 待机中"
+                  : "PostgreSQL Standby"}
+            </span>
+          </div>
+        </div>
+      </aside>
+
+      {/* Unified Top Application Bar */}
+      <header className="unified-topbar">
+        <div className="unified-topbar-inner">
+          <div className="unified-brand-area">
+            <button
+              className={`project-switcher-trigger ${projectMenuOpen ? "is-open" : ""}`}
+              type="button"
+              aria-label={zh ? "打开应用切换侧边栏" : "Open application sidebar"}
+              aria-expanded={projectMenuOpen}
+              onClick={() => setProjectMenuOpen((open) => !open)}
             >
-              <option value="en">English</option>
-              <option value="zh">中文</option>
-            </select>
-          </label>
-          <Image
-            unoptimized
-            src="/festo-logo.png"
-            alt="FESTO"
-            width={264}
-            height={70}
-            className="festo-logo"
-          />
+              <span />
+              <span />
+              <span />
+            </button>
+            <div className="unified-brand-mark">
+              <Image
+                unoptimized
+                src="/brand-icon.png"
+                alt={t("Company logo")}
+                width={34}
+                height={34}
+                className="brand-icon"
+              />
+            </div>
+            <div className="unified-brand-title">
+              <strong>Broker King</strong>
+            </div>
+          </div>
+
+          {/* Center Contextual Module Navigation in Topbar */}
+          <nav
+            className="unified-topbar-nav"
+            aria-label={zh ? "当前模块导航" : "Module navigation"}
+          >
+            {activeProject === "connector" && (
+              <>
+                {(
+                  [
+                    ["/dashboard", zh ? "连接状态" : "Status", "Status"],
+                    ["/add", zh ? "添加 PLC" : "Add PLC", "Add"],
+                    ["/mqtt", zh ? "MQTT 配置" : "MQTT Broker", "MQTT"],
+                    ["/import", zh ? "导入配置" : "Import", "Import"],
+                  ] as const
+                ).map(([path, label, group]) => {
+                  const currentGroup =
+                    connectorPath === "/import"
+                      ? "Import"
+                      : connectorPath === "/mqtt"
+                        ? "MQTT"
+                        : connectorPath.startsWith("/add") ||
+                            ["/siemens", "/rockwell", "/opcua", "/beckhoff", "/modbus"].includes(
+                              connectorPath,
+                            )
+                          ? "Add"
+                          : "Status";
+                  const isActive = currentGroup === group;
+                  return (
+                    <button
+                      key={path}
+                      type="button"
+                      className={`unified-topbar-nav-item ${isActive ? "is-active" : ""}`}
+                      onClick={() =>
+                        setConnectorNavReq((prev) => ({
+                          path,
+                          seq: prev.seq + 1,
+                        }))
+                      }
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  className="unified-topbar-nav-item"
+                  onClick={() =>
+                    window.open(
+                      "https://www.festo.com/de/en/p/ax-motion-insights-pneumatic-id_GASA_MIP/?tab=SUPPORT_PORTAL&documentTypeGroup=EXPERT_KNOWLEDGE&supportPortalTab=18",
+                      "_blank",
+                      "noopener,noreferrer",
+                    )
+                  }
+                >
+                  {zh ? "资料下载 ↗" : "Downloads ↗"}
+                </button>
+              </>
+            )}
+
+            {activeProject === "c2m" &&
+              (
+                [
+                  ["/overview", zh ? "设备概览" : "Device overview"],
+                  ["/parameters", zh ? "参数设置" : "Parameters"],
+                  ["/connection", zh ? "设备连接" : "Device connection"],
+                  ["/mqtt", zh ? "MQTT 输出" : "MQTT Output"],
+                ] as const
+              ).map(([path, label]) => {
+                const isActive = c2mPath === path || (path === "/overview" && c2mPath === "/");
+                return (
+                  <button
+                    key={path}
+                    type="button"
+                    className={`unified-topbar-nav-item ${isActive ? "is-active" : ""}`}
+                    onClick={() => setC2mNavReq((prev) => ({ path, seq: prev.seq + 1 }))}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+
+            {activeProject === "repairs" &&
+              (
+                [
+                  ["connection", zh ? "账号连接" : "Connection", "connection-title"],
+                  ["database", zh ? "数据库同步" : "Database Sync", "database-title"],
+                  ["filters", zh ? "条件筛选" : "Filters", "filters-title"],
+                  ["results", zh ? "查询结果" : "Results", "results-title"],
+                ] as const
+              ).map(([key, label, targetId]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={`unified-topbar-nav-item ${repairsTab === key ? "is-active" : ""}`}
+                  onClick={() => {
+                    setRepairsTab(key);
+                    document
+                      .getElementById(targetId)
+                      ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+                  }}
+                >
+                  {label}
+                </button>
+              ))}
+
+            {activeProject === "debug-agent" &&
+              (
+                [
+                  ["chat", zh ? "对话诊断" : "Chat"],
+                  ["diagnostics", zh ? "实时巡检" : "Quick Diagnostics"],
+                  ["settings", zh ? "模型配置" : "Model Settings"],
+                ] as const
+              ).map(([view, label]) => (
+                <button
+                  key={view}
+                  type="button"
+                  className={`unified-topbar-nav-item ${debugAgentView === view ? "is-active" : ""}`}
+                  onClick={() => setDebugAgentView(view)}
+                >
+                  {label}
+                </button>
+              ))}
+          </nav>
+
+          <div className="unified-topbar-right">
+            <span
+              className={`unified-db-badge ${dbHealthy ? "is-healthy" : ""}`}
+              title={
+                dbHealthy
+                  ? zh
+                    ? "共享 PostgreSQL 数据库与统一后端运行正常"
+                    : "Shared PostgreSQL database and unified backend are online"
+                  : zh
+                    ? "PostgreSQL 数据库未就绪"
+                    : "PostgreSQL database unavailable"
+              }
+            >
+              <Database size={13} />
+              <span>
+                {dbHealthy
+                  ? zh
+                    ? "PostgreSQL 已就绪"
+                    : "PostgreSQL Ready"
+                  : zh
+                    ? "PostgreSQL 待机"
+                    : "PostgreSQL Standby"}
+              </span>
+            </span>
+
+            <div className="unified-lang-switch" role="group" aria-label="Language / 语言">
+              <button
+                type="button"
+                className={`unified-lang-btn ${language === "en" ? "is-active" : ""}`}
+                onClick={() => changeLanguage("en")}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                className={`unified-lang-btn ${language === "zh" ? "is-active" : ""}`}
+                onClick={() => changeLanguage("zh")}
+              >
+                中文
+              </button>
+            </div>
+
+            <span className="unified-topbar-divider" aria-hidden="true" />
+
+            <button
+              type="button"
+              className={`unified-agent-trigger ${activeProject === "debug-agent" ? "is-active" : ""}`}
+              aria-pressed={activeProject === "debug-agent"}
+              onClick={() => showProject("debug-agent")}
+            >
+              <Bot size={16} />
+              <span>Debug Agent</span>
+            </button>
+          </div>
         </div>
       </header>
-      <div className="content">
-        <div className="page-heading">
-          <div>
-            <p className="eyebrow">{t("REPAIR TASKS / CSV")}</p>
-            <h1>{t("Repair task export")}</h1>
-            <p className="muted">
-              {t("Select machines and creation dates to export repair records as CSV.")}
-            </p>
-          </div>
-          <span className={`connection-status ${token ? "connected" : ""}`}>
-            {token ? t("Connected to Smartenance") : t("Not connected")}
-          </span>
-        </div>
-        <section className="connection-panel" aria-labelledby="connection-title">
-          <div className="section-label">
-            <Cable size={19} />
-            <h2 id="connection-title">{t("Connect to Smartenance")}</h2>
-            {token && (
-              <Button className="disconnect" variant="ghost" disabled={busy} onClick={disconnect}>
-                {t("Disconnect")}
-              </Button>
-            )}
-          </div>
-          {!token ? (
-            <>
-              <Tabs value={mode} onValueChange={(v) => setMode(String(v))} className="auth-tabs">
-                <TabsList>
-                  <TabsTrigger value="token" disabled={connecting}>
-                    {t("Access token")}
-                  </TabsTrigger>
-                  <TabsTrigger value="account" disabled={connecting}>
-                    {t("API account")}
-                  </TabsTrigger>
-                </TabsList>
-                <form onSubmit={connect}>
-                  <TabsContent value="token">
-                    <div className="connection-fields">
-                      <label htmlFor="access-token">
-                        {t("Access token")}
-                        <Input
-                          id="access-token"
-                          type="password"
-                          value={tokenDraft}
-                          onChange={(e) => setTokenDraft(e.target.value)}
-                          placeholder={t("Paste your access token (Bearer prefix optional)")}
-                          required={mode === "token"}
-                          autoComplete="off"
-                          disabled={connecting}
-                        />
-                      </label>
-                      <Button type="submit" disabled={connecting || !tokenDraft.trim()}>
-                        {connecting && <LoaderCircle className="spin" />}
-                        {t("Connect & load machines")}
-                      </Button>
-                    </div>
-                  </TabsContent>
-                  <TabsContent value="account">
-                    <div className="connection-fields">
-                      <label htmlFor="api-username">
-                        {t("API username")}
-                        <Input
-                          id="api-username"
-                          value={username}
-                          onChange={(e) => setUsername(e.target.value)}
-                          placeholder={t("Smartenance Premium API username")}
-                          required={mode === "account"}
-                          autoComplete="username"
-                          disabled={connecting}
-                        />
-                      </label>
-                      <label htmlFor="api-password">
-                        {t("Password")}
-                        <Input
-                          id="api-password"
-                          type="password"
-                          value={password}
-                          onChange={(e) => setPassword(e.target.value)}
-                          required={mode === "account"}
-                          autoComplete="off"
-                          disabled={connecting}
-                        />
-                      </label>
-                      <Button type="submit" disabled={connecting || !username.trim() || !password}>
-                        {connecting && <LoaderCircle className="spin" />}
-                        {t("Sign in & load machines")}
-                      </Button>
-                    </div>
-                    <details className="auth-help">
-                      <summary>{t("Trouble signing in?")}</summary>
-                      <p>
-                        {t(
-                          "Use an account with API access. The official guide and example list different authentication policies. If the default does not work, select the alternative manually or use an access token.",
-                        )}
-                      </p>
-                      <Select
-                        value={policy}
-                        onValueChange={(v) => v && setPolicy(v)}
-                        disabled={connecting}
-                      >
-                        <SelectTrigger aria-label={t("Authentication policy")}>
-                          <SelectValue>{policy}</SelectValue>
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value={firstPolicy}>b2c_1_apisignin_ropc</SelectItem>
-                          <SelectItem value="b2c_1_ropc_apisignin">b2c_1_ropc_apisignin</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </details>
-                  </TabsContent>
-                </form>
-              </Tabs>
-              <a
-                className="doc-link"
-                href="https://developers.festo.com/smartenance-authentication"
-                target="_blank"
-                rel="noreferrer"
-              >
-                {t("Festo authentication guide ↗")}
-              </a>
-            </>
-          ) : (
-            <p className="muted">
-              {t(`Loaded ${machines.length} machines. Reconnect when your access token expires.`)}
-            </p>
-          )}
-        </section>
-        <section className="filter-panel" aria-labelledby="filters-title">
-          <div className="section-label">
-            <ListFilter size={19} />
-            <h2 id="filters-title">{t("Filters")}</h2>
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void query().catch((e) => setError(e.message));
-            }}
-          >
-            <div className="filter-grid">
-              <div className="machine-field">
-                <label htmlFor="machines">
-                  <span>
-                    <Factory size={16} />
-                    {t("Machines · select one or more")}
-                  </span>
-                </label>
-                <Combobox
-                  multiple
-                  items={machines.map((m) => m.id)}
-                  value={selected}
-                  onValueChange={(v) => {
-                    setSelected(v);
-                    clearResult();
-                  }}
-                  itemToStringLabel={machineLabel}
-                  disabled={!token || busy}
-                >
-                  <ComboboxChips ref={anchor} className="machine-chips">
-                    <ComboboxValue>
-                      {(values: string[]) => (
-                        <>
-                          {values.map((id) => (
-                            <ComboboxChip key={id} aria-label={machineLabel(id)}>
-                              {machineLabel(id)}
-                            </ComboboxChip>
-                          ))}
-                          <ComboboxChipsInput
-                            id="machines"
-                            aria-label={t("Select machines")}
-                            placeholder={
-                              values.length
-                                ? t("Add another…")
-                                : t("Search by machine name or number")
-                            }
-                          />
-                        </>
-                      )}
-                    </ComboboxValue>
-                  </ComboboxChips>
-                  <ComboboxContent anchor={anchor}>
-                    <ComboboxEmpty>{t("No machines found")}</ComboboxEmpty>
-                    <ComboboxList>
-                      {(id: string) => (
-                        <ComboboxItem key={id} value={id}>
-                          {machineLabel(id)}
-                        </ComboboxItem>
-                      )}
-                    </ComboboxList>
-                  </ComboboxContent>
-                </Combobox>
-                <div className="machine-actions">
-                  <button
-                    type="button"
-                    disabled={!token || busy}
-                    onClick={() => {
-                      setSelected(machines.map((m) => m.id));
-                      clearResult();
-                    }}
-                  >
-                    {t("Select all")}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!selected.length || busy}
-                    onClick={() => {
-                      setSelected([]);
-                      clearResult();
-                    }}
-                  >
-                    {t("Clear")}
-                  </button>
-                  <span>{t(`${selected.length} selected`)}</span>
-                </div>
-              </div>
-              <label htmlFor="date-from">
-                <span>
-                  <CalendarDays size={16} />
-                  {t("Created from")}
-                </span>
-                <Input
-                  id="date-from"
-                  type="date"
-                  value={from}
-                  onChange={(e) => {
-                    setFrom(e.target.value);
-                    clearResult();
-                  }}
-                  required
-                  disabled={busy}
-                />
-              </label>
-              <label htmlFor="date-to">
-                <span>{t("Created through")}</span>
-                <Input
-                  id="date-to"
-                  type="date"
-                  value={to}
-                  min={from}
-                  onChange={(e) => {
-                    setTo(e.target.value);
-                    clearResult();
-                  }}
-                  required
-                  disabled={busy}
-                />
-              </label>
-              <Button type="submit" disabled={!token || !selected.length || busy || connecting}>
-                {busy ? <LoaderCircle className="spin" /> : <Search />}
-                {busy ? t("Searching…") : t("Find repair tasks")}
-              </Button>
+
+      {/* Module 1: PLC & MQTT Connector */}
+      <section
+        id="project-connector"
+        className={`unified-module-section ${activeProject === "connector" ? "is-active-view" : ""}`}
+        aria-label={zh ? "设备连接器" : "PLC & MQTT Connector"}
+        hidden={activeProject !== "connector"}
+      >
+        {mounted && (
+          <ConnectorModule
+            language={language}
+            externalRoute={connectorNavReq}
+            onRouteChange={setConnectorPath}
+          />
+        )}
+      </section>
+
+      {/* Module 2: MSE6-C2M Energy-saving Module */}
+      <section
+        id="project-c2m"
+        className={`unified-module-section ${activeProject === "c2m" ? "is-active-view" : ""}`}
+        aria-label={zh ? "MSE6-C2M 配置" : "MSE6-C2M Configuration"}
+        hidden={activeProject !== "c2m"}
+      >
+        {mounted && (
+          <C2MModule language={language} externalRoute={c2mNavReq} onRouteChange={setC2mPath} />
+        )}
+      </section>
+
+      {/* Module 3: Smartenance Repair Task Export */}
+      <section
+        id="project-repairs"
+        className={`unified-module-section repairs-scope ${activeProject === "repairs" ? "is-active-view" : ""}`}
+        aria-label={zh ? "维修导出" : "Smartenance Repair Export"}
+        hidden={activeProject !== "repairs"}
+      >
+        <div className="unified-module-container">
+          <div className="unified-module-header">
+            <div className="unified-module-title-group">
+              <h1>{t("Repair task export")}</h1>
             </div>
-          </form>
-          {busy && (
-            <output className="query-progress">
-              <LoaderCircle size={17} className="spin" />
-              <span>{t(progress)}</span>
-              <Button variant="ghost" onClick={() => abortRef.current?.abort()}>
-                <X />
-                {t("Cancel")}
-              </Button>
-            </output>
-          )}
-          {error && (
-            <div role="alert" className="notice error">
-              {t(error)}
+            <div className="unified-module-controls">
+              <span className={`unified-status-pill ${token ? "is-connected" : ""}`}>
+                <i />
+                {token ? t("Connected to Smartenance") : t("Not connected")}
+              </span>
             </div>
-          )}
-          {notice && (
-            <output className="notice info" style={{ display: "block" }}>
-              {t(notice)}
-            </output>
-          )}
-        </section>
-        <section className="result-panel" aria-labelledby="results-title" aria-busy={busy}>
-          <div className="result-header">
-            <div>
-              <h2 id="results-title">
-                {t("Results")}
-                {result && <span className="count">{result.rows.length}</span>}
-              </h2>
-              {result && (
-                <p className="muted">
-                  {t(
-                    `${result.filters.from} — ${result.filters.to} · ${result.scanned} incidents checked`,
-                  )}
-                </p>
+          </div>
+
+          <section className="connection-panel" aria-labelledby="connection-title">
+            <div className="section-label">
+              <Cable size={19} />
+              <h2 id="connection-title">{t("Connect to Smartenance")}</h2>
+              {token && (
+                <Button className="disconnect" variant="ghost" disabled={busy} onClick={disconnect}>
+                  {t("Disconnect")}
+                </Button>
               )}
             </div>
-            <Button
-              disabled={!result?.rows.length || busy}
-              variant={result?.rows.length ? "default" : "outline"}
-              onClick={() => {
-                try {
-                  download();
-                } catch (e) {
-                  setError((e as Error).message);
-                }
+            {!token ? (
+              <>
+                <Tabs value={mode} onValueChange={(v) => setMode(String(v))} className="auth-tabs">
+                  <TabsList>
+                    <TabsTrigger value="token" disabled={connecting}>
+                      {t("Access token")}
+                    </TabsTrigger>
+                    <TabsTrigger value="account" disabled={connecting}>
+                      {t("API account")}
+                    </TabsTrigger>
+                  </TabsList>
+                  <form onSubmit={connect}>
+                    <TabsContent value="token">
+                      <div className="connection-fields">
+                        <label htmlFor="access-token">
+                          {t("Access token")}
+                          <Input
+                            id="access-token"
+                            type="password"
+                            value={tokenDraft}
+                            onChange={(e) => setTokenDraft(e.target.value)}
+                            placeholder={t("Paste your access token (Bearer prefix optional)")}
+                            required={mode === "token"}
+                            autoComplete="off"
+                            disabled={connecting}
+                          />
+                        </label>
+                        <Button type="submit" disabled={connecting || !tokenDraft.trim()}>
+                          {connecting && <LoaderCircle className="spin" />}
+                          {t("Connect & load machines")}
+                        </Button>
+                      </div>
+                    </TabsContent>
+                    <TabsContent value="account">
+                      <div className="connection-fields">
+                        <label htmlFor="api-username">
+                          {t("API username")}
+                          <Input
+                            id="api-username"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            placeholder={t("Smartenance Premium API username")}
+                            required={mode === "account"}
+                            autoComplete="username"
+                            disabled={connecting}
+                          />
+                        </label>
+                        <label htmlFor="api-password">
+                          {t("Password")}
+                          <Input
+                            id="api-password"
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            required={mode === "account"}
+                            autoComplete="off"
+                            disabled={connecting}
+                          />
+                        </label>
+                        <Button
+                          type="submit"
+                          disabled={connecting || !username.trim() || !password}
+                        >
+                          {connecting && <LoaderCircle className="spin" />}
+                          {t("Sign in & load machines")}
+                        </Button>
+                      </div>
+                      <details className="auth-help">
+                        <summary>{t("Trouble signing in?")}</summary>
+                        <p>
+                          {t(
+                            "Use an account with API access. The official guide and example list different authentication policies. If the default does not work, select the alternative manually or use an access token.",
+                          )}
+                        </p>
+                        <Select
+                          value={policy}
+                          onValueChange={(v) => v && setPolicy(v)}
+                          disabled={connecting}
+                        >
+                          <SelectTrigger aria-label={t("Authentication policy")}>
+                            <SelectValue>{policy}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={firstPolicy}>b2c_1_apisignin_ropc</SelectItem>
+                            <SelectItem value="b2c_1_ropc_apisignin">
+                              b2c_1_ropc_apisignin
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </details>
+                    </TabsContent>
+                  </form>
+                </Tabs>
+                <a
+                  className="doc-link"
+                  href="https://developers.festo.com/smartenance-authentication"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("Festo authentication guide ↗")}
+                </a>
+              </>
+            ) : (
+              <p className="muted">
+                {t(`Loaded ${machines.length} machines. Reconnect when your access token expires.`)}
+              </p>
+            )}
+          </section>
+
+          <section className="database-panel" aria-labelledby="database-title">
+            <div className="section-label">
+              <Database size={19} />
+              <h2 id="database-title">{t("PostgreSQL database")}</h2>
+              <Button
+                className="sync-button"
+                variant="outline"
+                disabled={!token || busy || connecting}
+                onClick={() => void syncAll()}
+              >
+                {syncing ? <LoaderCircle className="spin" /> : <RefreshCw />}
+                {t(syncing ? "Syncing…" : "Sync all machines")}
+              </Button>
+            </div>
+            {lastSync && (
+              <p className="muted">
+                {t("Last full sync (UTC+8)")}: {formatTime(lastSync.syncedAt)}
+              </p>
+            )}
+          </section>
+
+          <section className="filter-panel" aria-labelledby="filters-title">
+            <div className="section-label">
+              <ListFilter size={19} />
+              <h2 id="filters-title">{t("Filters")}</h2>
+            </div>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void query().catch((e) => setError(e.message));
               }}
             >
-              <ArrowDownToLine />
-              {t("Export all to CSV")}
-              {result?.rows.length ? ` (${result.rows.length})` : ""}
-            </Button>
-          </div>
-          {result?.rows.length ? (
-            <>
-              <Table className="repair-table">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>{t("Machine / incident")}</TableHead>
-                    <TableHead>{t("Repair task")}</TableHead>
-                    <TableHead>{t("Result")}</TableHead>
-                    <TableHead>{t("Created at (UTC+8)")}</TableHead>
-                    <TableHead>{t("Created by")}</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {result.rows.slice((page - 1) * 20, page * 20).map((row) => (
-                    <TableRow key={row.taskId}>
-                      <TableCell>
-                        <strong>{row.machineName || t("Unnamed machine")}</strong>
-                        <small>
-                          {row.machineNumber || t("No machine number")} ·{" "}
-                          {language === "zh" ? "故障 #" : "Incident #"}
-                          {row.incidentNumber}
-                        </small>
-                      </TableCell>
-                      <TableCell className="task-description">
-                        <strong>{row.description || t("No task description")}</strong>
-                        <small>{row.incidentSummary || t("No incident summary")}</small>
-                      </TableCell>
-                      <TableCell>
-                        <span
-                          className={`result-tag ${row.result === "Success" ? "success" : row.result === "Failure" ? "failure" : "unknown"}`}
-                        >
-                          {t(resultLabels[row.result] ?? row.result)}
-                        </span>
-                      </TableCell>
-                      <TableCell className="time-cell">{formatTime(row.createdAt)}</TableCell>
-                      <TableCell>{row.createdBy || "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              <div className="table-bottom">
-                <span>{t(`20 rows per page · CSV includes all ${result.rows.length} rows`)}</span>
-                <Pagination aria-label={t("Result pages")}>
-                  <PaginationContent>
-                    <PaginationItem>
-                      <Button
-                        variant="ghost"
-                        disabled={page === 1}
-                        onClick={() => setPage((p) => p - 1)}
-                      >
-                        {t("Previous")}
-                      </Button>
-                    </PaginationItem>
-                    <PaginationItem>
-                      <span aria-live="polite">
-                        {page} / {pages}
-                      </span>
-                    </PaginationItem>
-                    <PaginationItem>
-                      <Button
-                        variant="ghost"
-                        disabled={page === pages}
-                        onClick={() => setPage((p) => p + 1)}
-                      >
-                        {t("Next")}
-                      </Button>
-                    </PaginationItem>
-                  </PaginationContent>
-                </Pagination>
-              </div>
-            </>
-          ) : (
-            <Empty className="result-empty">
-              <EmptyHeader>
-                <div className="empty-icon">
-                  {busy ? <LoaderCircle size={26} className="spin" /> : <Wrench size={26} />}
+              <div className="filter-grid">
+                <div className="machine-field">
+                  <label htmlFor="machines">
+                    <span>
+                      <Factory size={16} />
+                      {t("Machines · select one or more")}
+                    </span>
+                  </label>
+                  <Combobox
+                    multiple
+                    items={machines.map((m) => m.id)}
+                    value={selected}
+                    onValueChange={(v) => {
+                      changeFilters({ machineIds: v });
+                    }}
+                    itemToStringLabel={machineLabel}
+                    disabled={!token || busy}
+                  >
+                    <ComboboxChips ref={anchor} className="machine-chips">
+                      <ComboboxValue>
+                        {(values: string[]) => (
+                          <>
+                            {values.map((id) => (
+                              <ComboboxChip key={id} aria-label={machineLabel(id)}>
+                                {machineLabel(id)}
+                              </ComboboxChip>
+                            ))}
+                            <ComboboxChipsInput
+                              id="machines"
+                              aria-label={t("Select machines")}
+                              placeholder={
+                                values.length
+                                  ? t("Add another…")
+                                  : t("Search by machine name or number")
+                              }
+                            />
+                          </>
+                        )}
+                      </ComboboxValue>
+                    </ComboboxChips>
+                    <ComboboxContent anchor={anchor}>
+                      <ComboboxEmpty>{t("No machines found")}</ComboboxEmpty>
+                      <ComboboxList>
+                        {(id: string) => (
+                          <ComboboxItem key={id} value={id}>
+                            {machineLabel(id)}
+                          </ComboboxItem>
+                        )}
+                      </ComboboxList>
+                    </ComboboxContent>
+                  </Combobox>
+                  <div className="machine-actions">
+                    <button
+                      type="button"
+                      disabled={!token || busy}
+                      onClick={() => {
+                        changeFilters({
+                          machineIds: machines.map((m) => m.id),
+                        });
+                      }}
+                    >
+                      {t("Select all")}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!selected.length || busy}
+                      onClick={() => {
+                        changeFilters({ machineIds: [] });
+                      }}
+                    >
+                      {t("Clear")}
+                    </button>
+                    <span>{t(`${selected.length} selected`)}</span>
+                  </div>
                 </div>
-                <EmptyTitle>
-                  {busy
-                    ? t("Collecting repair records")
-                    : result
-                      ? t("No repair tasks match these filters")
-                      : t("Your repair records, ready to export")}
-                </EmptyTitle>
-                {(busy || result) && (
-                  <EmptyDescription>
-                    {busy
-                      ? t("Export becomes available once all records have been read.")
-                      : t("Try other machines or a wider creation date range.")}
-                  </EmptyDescription>
+                <label htmlFor="incident-state">
+                  <span>{t("Incident status")}</span>
+                  <Select<IncidentStateFilter>
+                    value={incidentState}
+                    onValueChange={(value) => {
+                      if (value) {
+                        changeFilters({ incidentState: value });
+                      }
+                    }}
+                    disabled={busy}
+                  >
+                    <SelectTrigger id="incident-state" aria-label={t("Incident status")}>
+                      <SelectValue>{t(incidentStateLabels[incidentState])}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent>
+                      {INCIDENT_STATE_OPTIONS.map((state) => (
+                        <SelectItem key={state} value={state}>
+                          {t(incidentStateLabels[state])}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </label>
+                <label htmlFor="date-from">
+                  <span>
+                    <CalendarDays size={16} />
+                    {t("Created from")}
+                  </span>
+                  <Input
+                    id="date-from"
+                    type="date"
+                    value={from}
+                    onChange={(e) => {
+                      changeFilters({ from: e.target.value });
+                    }}
+                    required
+                    disabled={busy}
+                  />
+                </label>
+                <label htmlFor="date-to">
+                  <span>{t("Created through")}</span>
+                  <Input
+                    id="date-to"
+                    type="date"
+                    value={to}
+                    min={from}
+                    onChange={(e) => {
+                      changeFilters({ to: e.target.value });
+                    }}
+                    required
+                    disabled={busy}
+                  />
+                </label>
+                <Button type="submit" disabled={!token || !selected.length || busy || connecting}>
+                  {busy ? <LoaderCircle className="spin" /> : <Search />}
+                  {busy ? t(syncing ? "Syncing…" : "Searching…") : t("Find repair tasks")}
+                </Button>
+              </div>
+            </form>
+            {busy && (
+              <output className="query-progress">
+                <LoaderCircle size={17} className="spin" />
+                <span>{t(progress)}</span>
+                <Button variant="ghost" onClick={() => abortRef.current?.abort()}>
+                  <X />
+                  {t("Cancel")}
+                </Button>
+              </output>
+            )}
+            {error && (
+              <div role="alert" className="notice error">
+                {t(error)}
+              </div>
+            )}
+            {notice && (
+              <output className="notice info" style={{ display: "block" }}>
+                {t(notice)}
+              </output>
+            )}
+          </section>
+
+          <section className="result-panel" aria-labelledby="results-title" aria-busy={busy}>
+            <div className="result-header">
+              <div>
+                <h2 id="results-title">
+                  {t("Results")}
+                  {result && <span className="count">{result.rows.length}</span>}
+                </h2>
+                {result && (
+                  <p className="muted">
+                    {t(
+                      `${result.filters.from} — ${result.filters.to} · ${result.scanned} incidents checked`,
+                    )}
+                    {result.fetchedAt && (
+                      <>
+                        {" "}
+                        · {t("Data read at (UTC+8)")}: {formatTime(result.fetchedAt)}
+                      </>
+                    )}
+                    {result.retrieval?.databaseMachines !== undefined && (
+                      <>
+                        <br />
+                        {t(`Database: ${result.retrieval.databaseMachines} machines`)}
+                      </>
+                    )}
+                    {result.retrieval?.oldestSnapshotAt && (
+                      <>
+                        {" "}
+                        · {t("Oldest snapshot (UTC+8)")}:{" "}
+                        {formatTime(result.retrieval.oldestSnapshotAt)}
+                      </>
+                    )}
+                    {result.retrieval && (
+                      <>
+                        <br />
+                        {t(
+                          `Bulk export: ${result.retrieval.bulkMachines} machines · Standard query: ${result.retrieval.standardMachines} machines`,
+                        )}
+                      </>
+                    )}
+                  </p>
                 )}
-              </EmptyHeader>
-            </Empty>
-          )}
-        </section>
-        <footer>
-          <span>{t("Festo AX Smartenance · Read and export repair records")}</span>
+              </div>
+              <Button
+                disabled={!result?.rows.length || busy}
+                variant={result?.rows.length ? "default" : "outline"}
+                onClick={() => {
+                  try {
+                    download();
+                  } catch (e) {
+                    setError((e as Error).message);
+                  }
+                }}
+              >
+                <ArrowDownToLine />
+                {t("Export all to CSV")}
+                {result?.rows.length ? ` (${result.rows.length})` : ""}
+              </Button>
+            </div>
+            {result?.rows.length ? (
+              <>
+                <Table className="repair-table">
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>{t("Machine / incident")}</TableHead>
+                      <TableHead>{t("Repair task")}</TableHead>
+                      <TableHead>{t("Result")}</TableHead>
+                      <TableHead>{t("Created at (UTC+8)")}</TableHead>
+                      <TableHead>{t("Created by")}</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {result.rows.slice((page - 1) * 20, page * 20).map((row) => (
+                      <TableRow key={row.taskId}>
+                        <TableCell>
+                          <strong>{row.machineName || t("Unnamed machine")}</strong>
+                          <small>
+                            {row.machineNumber || t("No machine number")} ·{" "}
+                            {language === "zh" ? "故障 #" : "Incident #"}
+                            {row.incidentNumber}
+                          </small>
+                        </TableCell>
+                        <TableCell className="task-description">
+                          <strong>{row.description || t("No task description")}</strong>
+                          <small>{row.incidentSummary || t("No incident summary")}</small>
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`result-tag ${row.result === "Success" ? "success" : row.result === "Failure" ? "failure" : "unknown"}`}
+                          >
+                            {t(resultLabels[row.result] ?? row.result)}
+                          </span>
+                        </TableCell>
+                        <TableCell className="time-cell">{formatTime(row.createdAt)}</TableCell>
+                        <TableCell>{row.createdBy || "—"}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                <div className="table-bottom">
+                  <span>{t(`20 rows per page · CSV includes all ${result.rows.length} rows`)}</span>
+                  <Pagination aria-label={t("Result pages")}>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <Button
+                          variant="ghost"
+                          disabled={page === 1}
+                          onClick={() => setPage((p) => p - 1)}
+                        >
+                          {t("Previous")}
+                        </Button>
+                      </PaginationItem>
+                      <PaginationItem>
+                        <span aria-live="polite">
+                          {page} / {pages}
+                        </span>
+                      </PaginationItem>
+                      <PaginationItem>
+                        <Button
+                          variant="ghost"
+                          disabled={page === pages}
+                          onClick={() => setPage((p) => p + 1)}
+                        >
+                          {t("Next")}
+                        </Button>
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                </div>
+              </>
+            ) : (
+              <Empty className="result-empty">
+                <EmptyHeader>
+                  <div className="empty-icon">
+                    {busy ? <LoaderCircle size={26} className="spin" /> : <Wrench size={26} />}
+                  </div>
+                  <EmptyTitle>
+                    {busy
+                      ? t(syncing ? "Syncing database" : "Collecting repair records")
+                      : result
+                        ? t("No repair tasks match these filters")
+                        : t("Your repair records, ready to export")}
+                  </EmptyTitle>
+                  {(busy || result) && (
+                    <EmptyDescription>
+                      {busy
+                        ? t(
+                            syncing
+                              ? "Completed machines are saved as sync progresses."
+                              : "Export becomes available once all records have been read.",
+                          )
+                        : t("Try other machines, dates, or incident statuses.")}
+                    </EmptyDescription>
+                  )}
+                </EmptyHeader>
+              </Empty>
+            )}
+          </section>
+        </div>
+      </section>
+
+      {/* Module 4: Debug Agent (Smartenance Analytics + Connector/MQTT Diagnostics) */}
+      <section
+        id="project-debug-agent"
+        className={`unified-module-section ${activeProject === "debug-agent" ? "is-active-view" : ""}`}
+        aria-label={zh ? "Debug Agent 智能诊断助手" : "Debug Agent"}
+        hidden={activeProject !== "debug-agent"}
+      >
+        {mounted && (
+          <DebugAgentModule
+            language={language}
+            activeView={debugAgentView}
+            onViewChange={setDebugAgentView}
+          />
+        )}
+      </section>
+
+      {/* Unified Application Footer */}
+      <footer className="unified-app-footer">
+        <div className="unified-app-footer-links">
+          <span>Version 24.0.6</span>
           <a
             href="https://developers.festo.com/docs/digismartenance-premiumpublicprod/1/overview"
             target="_blank"
@@ -805,8 +1386,8 @@ export default function Home() {
           >
             {t("API documentation ↗")}
           </a>
-        </footer>
-      </div>
-    </main>
+        </div>
+      </footer>
+    </div>
   );
 }

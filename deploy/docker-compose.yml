@@ -1,0 +1,44 @@
+services:
+  broker-king:
+    image: broker-king:1.0
+    platform: linux/amd64
+    pull_policy: never
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgres://smartenance:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@db:5432/smartenance
+      HERMES_PROVIDER: ${HERMES_PROVIDER:-}
+      HERMES_BASE_URL: ${HERMES_BASE_URL:-}
+      HERMES_API_KEY: ${HERMES_API_KEY:-}
+      HERMES_MODEL: ${HERMES_MODEL:-}
+      SMARTENANCE_ACCOUNT_KEY: ${SMARTENANCE_ACCOUNT_KEY:-auto}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    restart: unless-stopped
+
+  db:
+    image: postgres:17-alpine
+    platform: linux/amd64
+    pull_policy: never
+    environment:
+      POSTGRES_DB: smartenance
+      POSTGRES_USER: smartenance
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartenance -d smartenance"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
